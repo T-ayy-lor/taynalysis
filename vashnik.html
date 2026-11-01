@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vashnik the Malignant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="boss.css">
+</head>
+<body>
+<div class="wrap" id="wrap"></div>
+<script src="shared.js"></script>
+<script>
+// The page is drawn by boss.js from this config (see the top of boss.js for what each part means).
+const CAVITY = [451.8, -273];   // the Malignant Cavity's middle
+// each Imbibe brings a wave of venoms; one that reaches the cavity vanishes there and sets off Malignant Burst
+const imbibes = p => dedupe(castsOf(p, 'Imbibe').map(t => [t]), 10).map(x => x[0]);   // a 5 s cast: start and end count once
+const waveOf = (p, t) => { const w = imbibes(p); let i = 0; w.forEach((s, k) => { if (s <= t) i = k + 1; }); return i; };
+const VENOMS = ['Burning Venom', 'Shrouded Venom', 'Clotting Venom'];
+const reachedCavity = p => (p.adds || []).filter(a => VENOMS.includes(a[2]) && a[4] === 'gone' && a[3] && dist(a[3], CAVITY) < 20 && a[0] < p.dur - 3);
+const surgesStacked = p => pulsesOf(p, 'Caustic Surge').filter(x => auras(p, 'Caustic Surge').some(a => a[1] < x[0] - 0.5 && (a[2] == null || a[2] > x[0])));
+// Plague Froth: the coated players' waves go out when the coat ends; anyone hit within 3 s of that was in a lane
+const froth = p => dedupe(auras(p, '#1281913').filter(a => a[2] != null), 6, a => a[2]).map(a0 => {
+  const set = auras(p, '#1281913').filter(a => a[2] != null && a[2] >= a0[2] - 0.5 && a[2] < a0[2] + 6), who = [...new Set(set.map(a => a[0]))];
+  return {t: a0[2], targets: who, hit: [...new Set(hitsOf(p, 'Plague Wave').filter(h => h[0] >= a0[2] - 0.5 && h[0] <= a0[2] + 3 && !who.includes(h[1])).map(h => h[1]))],
+    pos: set.map(a => a[6])}; });
+// Exploding Infection: the dispel sets off Caustic Explosion on the raid; two within 2 s stack, and on Mythic it grows until dispelled
+const LATE = 10;
+const infections = p => auras(p, 'Exploding Infection').filter(a => a[2] != null).map(a => ({n: a[0], t: a[2], st: a[3],
+  by: (p.dispels.find(d => d[2] === a[0] && d[3] === 'Exploding Infection' && Math.abs(d[0] - a[2]) < 0.4) || [])[1] || null}))
+  .sort((a, b) => a.t - b.t).map((x, i, all) => Object.assign(x, {together: all.some(y => y !== x && y.by && Math.abs(y.t - x.t) < 2 && y.t < x.t)}));
+const contacts = (p, ability, gap = 2) => { const last = {}, out = [];
+  hitsOf(p, ability).forEach(h => { if (last[h[1]] == null || h[0] - last[h[1]] > gap) out.push(h); last[h[1]] = h[0]; }); return out; };
+const CFG = {
+  slug: 'vashnik', name: 'Vashnik', enc: ['3455'],
+  map: {src: 'img/maps/vashnik.webp', cal: {cx: 451.8, cy: -273, ppy: 6.699, rot: -150, center: [516.7, 287.1]}},
+  modules: [
+    {id: 'venom', title: 'Living venoms',
+     one: p => ({head: ['Imbibe', 'Reached the cavity', 'Went Hardened', 'Burning killed together'], rows: imbibes(p).map((t, i) => {
+       const w = x => waveOf(p, x) === i + 1, c = [pulsesOf(p, 'Malignant Burst').filter(x => w(x[0])).length, npcAuras(p, 'Hardened Venom').filter(a => w(a[3])).length, surgesStacked(p).filter(x => w(x[0])).length];
+       return c.some(Boolean) ? [T(t), ...c.map(v => N(v))] : null; }).filter(Boolean)}),
+     all: list => ({head: [['Imbibe', 'l'], 'Pulls', 'Reached the cavity', 'Went Hardened', 'Burning killed together'], rows: (() => { const R = [];
+       list.forEach(p => imbibes(p).forEach((t, i) => { const r = (R[i] ||= {n: 0, c: 0, h: 0, s: 0}), w = x => waveOf(p, x) === i + 1; r.n++;
+         r.c += pulsesOf(p, 'Malignant Burst').filter(x => w(x[0])).length; r.h += npcAuras(p, 'Hardened Venom').filter(a => w(a[3])).length; r.s += surgesStacked(p).filter(x => w(x[0])).length; }));
+       return R.map((r, i) => [`<td class="l">${i + 1}</td>`, V(r.n), N(r.c), N(r.h), N(r.s)]); })()}),
+     note: 'Every venom has to die before it reaches the Malignant Cavity (Malignant Burst on the raid). After 60 s they harden: CC-immune and faster. Burning Venoms die one at a time: their Caustic Surge stacks (Heroic+).',
+     overlay: {label: 'Venoms', get: p => (p.adds || []).filter(a => VENOMS.includes(a[2]) && a[3]).map(a => { const got = reachedCavity(p).includes(a);
+       return {pos: a[3], t: a[0], mark: got ? 'cross' : 'dot', color: got ? '#ff5a4a' : a[2] === 'Burning Venom' ? '#e5b04a' : a[2] === 'Shrouded Venom' ? '#b58cff' : '#d8d2cf',
+         tip: `<b>${esc(a[2])}</b><br>${got ? 'reached the cavity' : 'killed here'}`}; }),
+       key: () => `<span>${keyDot('#e5b04a')}Burning</span><span>${keyDot('#b58cff')}Shrouded</span><span>${keyDot('#d8d2cf')}Clotting</span><span>${keyCross('#ff5a4a')}Reached the cavity</span>`}},
+
+    {id: 'froth', title: 'Plague Froth',
+     one: p => ({head: ['Time', ['Coated', 'l'], ['Hit by their waves', 'l']], rows: froth(p).filter(f => f.hit.length).map(f => [T(f.t), PS(f.targets), PS(f.hit)])}),
+     all: list => perPlayer(list, [{h: 'Hit by a Plague Wave', get: p => froth(p).flatMap(f => f.hit.map(n => ({n, t: f.t})))},
+       {h: 'Next to a coated player', get: p => contacts(p, 'Plague Froth').filter(h => !hadAura(p, h[1], '#1281913', h[0], 1)).map(h => ({n: h[1], t: h[0]}))}]),
+     note: 'Coated players move away from the raid; when it ends, Plague Waves go out in the four directions from them. Everyone stands off those lines.',
+     overlay: {label: 'Plague Froth', get: p => froth(p).flatMap(f => [...f.pos.filter(Boolean).map((q, i) => ({pos: q, t: f.t, color: '#b58cff', tip: `<b>${esc(f.targets[i] || '')}</b> released Plague Waves here`})),
+       ...f.hit.map(n => ({pos: posAt(p, n, f.t + 1), n, t: f.t, mark: 'cross', color: '#ff5a4a', tip: `<b style="color:${color(n)}">${esc(n)}</b> hit by a Plague Wave`}))]),
+       key: () => `<span>${keyDot('#b58cff')}Where the waves came from</span><span>${keyCross('#ff5a4a')}Hit by one</span>`}},
+
+    {id: 'inf', title: 'Exploding Infection',
+     one: p => ({head: ['Time', ['Infected', 'l'], ['Dispelled by', 'l'], 'Stacks', 'Same time as another'], rows: infections(p).filter(x => x.together || (p.diff === 16 && x.st >= LATE)).map(x =>
+       [T(x.t), P(x.n), x.by ? P(x.by) : '<td class="l dim">ran out</td>', p.diff === 16 ? N(x.st, x.st >= LATE ? 'bad' : '') : '<td class="num dim">–</td>', N(x.together ? 'yes' : 0)])}),
+     all: list => perPlayer(list, [{h: 'Dispelled at the same time', get: p => infections(p).filter(x => x.together && x.by).map(x => ({n: x.by, t: x.t}))},
+       {h: `Dispelled at ${LATE}+ stacks`, get: p => p.diff === 16 ? infections(p).filter(x => x.st >= LATE && x.by).map(x => ({n: x.by, t: x.t})) : []}]),
+     note: `Each dispel sets off a Caustic Explosion on the whole raid: one at a time, while the raid is healthy. On Mythic it gains a stack every 1.5 s until dispelled (${LATE}+ in red).`},
+
+    {id: 'stygian', title: 'Stygian Infection',
+     one: p => perPlayer([p], [{h: 'Hit by a Stygian Burst', get: q => hitsOf(q, 'Stygian Burst').filter(h => !hadAura(q, h[1], 'Stygian Infection', h[0], 1)).map(h => ({n: h[1], t: h[0]}))}]),
+     all: list => perPlayer(list, [{h: 'Hit by a Stygian Burst', get: q => hitsOf(q, 'Stygian Burst').filter(h => !hadAura(q, h[1], 'Stygian Infection', h[0], 1)).map(h => ({n: h[1], t: h[0]}))}]),
+     note: 'Infected players keep moving and leave Stygian Bursts behind them: stay out of their trail.'},
+
+    {id: 'bile', title: 'Catalytic Bile', diffs: '15,16',
+     one: p => ({head: ['Time', 'Players in a splash', 'Not soaked'], rows: dedupe(castsOf(p, 'Malignant Catalyst').map(t => [t]), 10).filter(([t]) => pulsesOf(p, '#1282616').some(x => x[0] >= t && x[0] <= t + 15)).map(([t]) => [T(t),
+       V(new Set(pulsesOf(p, '#1282602').filter(x => x[0] >= t && x[0] <= t + 15).flatMap(x => x[1])).size), N(pulsesOf(p, '#1282616').filter(x => x[0] >= t && x[0] <= t + 15).length)])}),
+     all: list => ({head: [['Pulls', 'l'], 'Catalysts', 'Not soaked'], rows: [[`<td class="l">${list.length}</td>`, V(list.reduce((a, p) => a + dedupe(castsOf(p, 'Malignant Catalyst').map(t => [t]), 10).length, 0)),
+       N(list.reduce((a, p) => a + pulsesOf(p, '#1282616').length, 0))]]}),
+     note: 'Every Catalytic Bile has to land on at least one player, or it hits the whole raid harder. Ranged spread around the boss.'},
+
+    {id: 'fangs', title: 'Dripping Fangs',
+     one: p => perPlayer([p], [{h: 'Took a second bite', get: q => auras(q, 'Dripping Fangs').filter(a => a[3] >= 2).map(a => ({n: a[0], t: a[1]}))}], ['Tank', 'l']),
+     all: list => perPlayer(list, [{h: 'Took a second bite', get: q => auras(q, 'Dripping Fangs').filter(a => a[3] >= 2).map(a => ({n: a[0], t: a[1]}))}], ['Tank', 'l']),
+     note: 'Swap tanks on every cast: a second bite on top of the first stacks 100% more physical damage taken.'},
+
+    {id: 'totem', title: 'Malignant Totems', diffs: '16',
+     one: p => ({head: ['Time', ['What', 'l'], 'Players hit'], rows: pulsesOf(p, 'Malignance').map(x => [T(x[0]), B('Totem left up'), V(x[1].length)])}),
+     all: list => ({head: [['Pulls', 'l'], 'Totems left up'], rows: [[`<td class="l">${list.length}</td>`, N(list.reduce((a, p) => a + pulsesOf(p, 'Malignance').length, 0))]]}),
+     note: 'Totems can only be cleared with a Plague Wave: one still up at the next Imbibe hits everyone with stacking Malignance.'},
+  ],
+  avoid: {names: ['Plague Wave', 'Plague Froth', 'Stygian Burst', 'Virulent Fumes', 'Umbral Ejection', 'Deadly Venom'],
+    short: {'Plague Wave': 'Wave', 'Plague Froth': 'Froth', 'Stygian Burst': 'Stygian', 'Virulent Fumes': 'Fumes', 'Umbral Ejection': 'Umbral', 'Deadly Venom': 'Venom'},
+    skip: (h, p) => (h[2] === 'Plague Froth' && hadAura(p, h[1], '#1281913', h[0], 1)) || (h[2] === 'Stygian Burst' && hadAura(p, h[1], 'Stygian Infection', h[0], 1)) || (h[2] === 'Virulent Fumes' && isTankIn(p, h[1])),
+    note: "Damage taken from each (hover a number for how many hits; shields count). Plague Froth and Stygian Burst don't count on the player who has them; Virulent Fumes doesn't count on tanks."},
+  abilities: {'Malignant Burst': 1280189, 'Malignant Cavity': 1280189, 'Malignance': 1304459, 'Malignant Totems': 1304459, 'Catalytic Bile': 1282602,
+    'Malignant Catalyst': 1282525, 'Caustic Surge': 1285979, 'Plague Froth': 1281907, 'Plague Waves': 1295798, 'Plague Wave': 1295798, 'Stygian Burst': 1302489,
+    'Stygian Infection': 1294994, 'Exploding Infection': 1295173, 'Caustic Explosion': 1295209, 'Virulent Fumes': 1291461, 'Umbral Ejection': 1286737,
+    'Imbibe': 1283164, 'Dripping Fangs': 1280935, 'Hardened Venom': 1314837, 'Burning Venoms': 1305902, 'Deadly Venom': 1297338},
+  how: "Built from the Encounter Journal, Method's Heroic and Mythic guides and Icy Veins, and checked against Taylor's logs (Sep-Oct 2026: 36 Mythic pulls, Heroic too); not yet checked on a live raid night. A venom that reached the cavity is one last seen at it that never died. The fountain rotation isn't scored: your team drinks Fire + Shadow every time on purpose. The room image is from raidstrats.gg, lined up on the Malignant Cavity and the fire and shadow fountains; positions are approximate.",
+};
+</script>
+<script src="boss.js"></script>
+</body>
+</html>

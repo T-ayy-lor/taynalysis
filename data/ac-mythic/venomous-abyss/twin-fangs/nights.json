@@ -1,14 +1,14 @@
 {
  "nights": [
   {
-   "file": "fangs-nights/WoWCombatLog-102926_203851.json",
+   "file": "data/ac-mythic/venomous-abyss/twin-fangs/WoWCombatLog-102926_203851.json",
    "log": "WoWCombatLog-102926_203851.txt",
    "date": "10/29/2026",
    "diff": 16,
    "pulls": 36,
    "kill": false,
    "best": 0.5231,
-   "updated": "2026-10-30T03:31:36+00:00"
+   "updated": "2026-10-31T22:54:28+00:00"
   }
  ]
 }

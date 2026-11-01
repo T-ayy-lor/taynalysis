@@ -2,9 +2,16 @@
 """
 Taynalysis uploader: watches your WoW combat log and, after every pull or wipe, sends the night's data
 to taynalysis.com (or, with --github, to the GitHub Pages copy of the site). Open pages pick it up on their own.
-  Sszorak: positions, Virulence casts, explosions, damage, Tempest -> nights/<log name>.json, listed in nights.json
+On start it asks which team the raid is for (or give --team ac-mythic / ac-heroic / ac-weekend, or 1 / 2 / 3).
+Each team's data goes in its own folder, data/<team>/<raid>/<boss>/:
+  Sszorak: positions, Virulence casts, explosions, damage, Tempest -> .../sszorak/<log name>.json, listed in nights.json there
   Twin Fangs: positions, Eternal Venom, globules, Coiling Ichor, kicks, Ravenous Feast soaks, damage, healing, deaths
-              -> fangs-nights/<log name>.json, listed in fangs.json
+              -> .../twin-fangs/<log name>.json, listed in nights.json there; kick order and soak groups in setup.txt there
+  Kith'ix (any difficulty): boss casts, chosen debuffs, avoidable hits, adds, Abyssal Grasp healing, damage, healing, deaths
+              -> .../kithix/<log name>.json, listed in nights.json there
+  Nek'zali, Entombed Sentinels, Vashnik, The Lost Explorers, The Coiled Altar, Ula'tek (FAIL_BOSSES, any difficulty):
+              casts, kicks, chosen debuffs, avoidable and failure hits, raid-wide failure hits, adds, damage, healing,
+              dispels, deaths -> .../<boss>/<log name>.json, listed in nights.json there
 """
 import base64, codecs, csv, getpass, glob, json, os, re, select, ssl, sys, time, urllib.error, urllib.request
 from datetime import datetime, timezone
@@ -13,8 +20,10 @@ from datetime import datetime, timezone
 LOG_DIR = '/Applications/World of Warcraft/_retail_/Logs'
 REPO = 't-ayy-lor/taynalysis'      # owner/repository of your GitHub Pages site
 BRANCH = 'main'
-NIGHT_DIR = 'nights'                       # one file per night (per combat log)
-INDEX_PATH = 'nights.json'                 # list of all nights, read by the page's night picker
+TEAMS = [('ac-mythic', 'Almost Casual Mythic'), ('ac-heroic', 'Almost Casual Heroic'), ('ac-weekend', 'Almost Casual Weekend')]   # same ids as shared.js
+TIER = 'venomous-abyss'                    # this raid's folder name, also in shared.js
+# set by set_team(): Sszorak nights folder and its list of nights (read by the page's night picker), same for Twin Fangs
+NIGHT_DIR = INDEX_PATH = FANGS_DIR = FANGS_INDEX = SETUP_PATH = KITH_DIR = KITH_INDEX = ACT_DIR = ACT_INDEX = None
 TOKEN_FILE = os.path.expanduser('~/.taynalysis_uploader_token')
 POLL_SECONDS = 3
 MIN_UPLOAD_GAP = 360        # seconds between uploads to GitHub: GitHub Pages has a soft limit of 10 site builds per hour
@@ -31,15 +40,26 @@ SURGE_CAST, SURGE_DEBUFF = '1305959', '1305963'   # Venomous Surge: the boss's c
 SURGE_LEN = 9.5                                # a debuff that lasted at least this long ran out on its own (it lasts 10 s)
 TELEPORT = '48020'                             # Demonic Circle: Teleport, counted per player per pull
 DMG_STEP = 5                                   # seconds per damage window in each pull's timeline
-SETUP_PATH = 'fangs-setup.txt'                 # Twin Fangs kick order and soak groups, read by the page
+# avoidable hits (Wowhead guide + journal): tornadoes, the tank's frontal on anyone else, claw impacts, residue pools,
+# someone's Raging Crosswinds blowing up next to you (1285616; not the DoT), the Mythic charge. The page drops tanks for Ravage.
+AVOID_S = {'1287083': 'Tempest', '1277101': 'Ravage', '1305998': 'Caustic Claws', '1296667': 'Caustic Residue',
+           '1285616': 'Raging Crosswinds burst', '1299592': 'To the Slaughter'}
 WOW_DIR = os.path.dirname(LOG_DIR)             # .../_retail_; Northern Sky Raid Tools saves its notes under WTF/Account/*/SavedVariables
-FANGS_DIR, FANGS_INDEX = 'fangs-nights', 'fangs.json'   # not 'fangs/': a folder by that name would block the /fangs page link
+
+
+TZ_RE = re.compile(r'\S+ \d+:\d+:\d+\.\d+([+-]\d+(?:\.\d+)?)\s')
+def log_tz(line):
+    """The logger's UTC offset in hours, from a line's timestamp ('10/29/2026 20:38:51.444-4  ...' -> -4.0), or None.
+    Saved with every night so the pages can show the logger's clock times in each viewer's own time zone."""
+    m = TZ_RE.match(line)
+    return float(m.group(1)) if m else None
 
 
 class Parser:
     """Reads combat-log text and keeps only Sszorak encounters."""
     def __init__(self):
         self.mark = 'ENCOUNTER_START,' + ENC + ','
+        self.tz = None             # the logger's UTC offset (hours)
         self.pulls, self.cur, self.leftover = [], None, ''
         self.names, self.pets, self.specs = {}, {}, {}
         self.finished = 0          # count of pulls that have ended
@@ -62,11 +82,13 @@ class Parser:
 
     def start(self, line, rest):
         r = self.split(rest)
+        self.tz = log_tz(line)
         clock = line.split(' ', 1)[1][:8].split('.')[0]
         self.cur = dict(n=len(self.pulls) + 1, t0=self.ts(line), clock=clock, date=line.split(' ', 1)[0],
                         diff=int(r[3]), size=int(r[4]), ended=False, kill=False, dur=0.0, lastT=0.0,
                         track={}, specGuid={}, aura=[], boom=[], died={}, bossGuid=None, boss=[], bossHp=None, dmg={},
-                        tempest={}, tempestCasts=0, now=0.0, ports={}, surgeCasts=[], sur=[], sdeb={})
+                        tempest={}, tempestCasts=0, now=0.0, ports={}, surgeCasts=[], sur=[], sdeb={},
+                        heal={}, dispels=[], avoid=[], lasthit={})
         self.pulls.append(self.cur)
 
     def end(self, rest):
@@ -148,8 +170,20 @@ class Parser:
                 c['aura'].append((t, ev[11:], r[9], r[5]))
                 self.names[r[5]] = r[6].split('-')[0]
             return
-        if ev.startswith('SPELL_AURA') or ev in ('SPELL_ABSORBED', 'SWING_DAMAGE_LANDED', 'SPELL_CAST_START'): return
+        if ev == 'SPELL_ABSORBED':           # shields: healing credited to whoever cast the shield
+            r = self.split(rest)
+            a = 9 if (r[9].startswith('Player-') or r[9].startswith('Creature-') or r[9].startswith('Pet-')) else 12
+            try:
+                o = r[a] if r[a].startswith('Player-') else self.pets.get(r[a]); val = float(r[a + 7])
+                if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
+            except (ValueError, IndexError): pass
+            return
+        if ev.startswith('SPELL_AURA') or ev in ('SWING_DAMAGE_LANDED', 'SPELL_CAST_START'): return
         r = self.split(rest)
+        if ev == 'SPELL_DISPEL':                 # a player cleansing a debuff off a player
+            o = r[1] if r[1].startswith('Player-') else self.pets.get(r[1])
+            if o and len(r) > 13 and r[5].startswith('Player-'): c['dispels'].append((t, o, r[5], r[13]))
+            return
         if len(r) > 2 and r[1].startswith('Player-'): self.names[r[1]] = r[2].split('-')[0]
         if len(r) > 6 and r[5].startswith('Player-'): self.names[r[5]] = r[6].split('-')[0]
         if not c['bossGuid'] and len(r) > 5:
@@ -185,6 +219,13 @@ class Parser:
                         if mx > 0: c['bossHp'] = (hp, mx)
                     except ValueError:
                         pass
+        if ev in ('SPELL_HEAL', 'SPELL_PERIODIC_HEAL'):
+            o = r[1] if r[1].startswith('Player-') else self.pets.get(r[1])
+            try: val = float(r[k + 19]) - max(float(r[k + 21]), 0)
+            except (ValueError, IndexError): val = 0.0
+            if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
+            return
+        enemy_hit = r[5].startswith('Player-') and not r[1].startswith('Player-') and r[1] not in self.pets
         if ev in ('SPELL_DAMAGE', 'SPELL_PERIODIC_DAMAGE', 'RANGE_DAMAGE', 'SWING_DAMAGE'):
             if ev == 'SPELL_DAMAGE' and r[9] == BOOM and r[5].startswith('Player-') and x is not None:
                 c['boom'].append((t, r[5], x, y))
@@ -192,6 +233,9 @@ class Parser:
                 amt, over, ab = float(r[k + 19]), float(r[k + 21]), float(r[k + 25])
             except (ValueError, IndexError):
                 return
+            if enemy_hit:
+                c['lasthit'][r[5]] = (t, 'Melee' if swing else r[10])
+                if not swing and r[9] in AVOID_S: c['avoid'].append((t, r[5], AVOID_S[r[9]], amt - max(over, 0) + max(ab, 0)))
             self.credit(c, r, amt - max(over, 0) + max(ab, 0))
             if r[9] == TEMPEST and r[5].startswith('Player-'):
                 self.tempest(c, r[5], amt - max(over, 0) + max(ab, 0), ev == 'SPELL_DAMAGE', t)
@@ -200,6 +244,9 @@ class Parser:
             if len(r) > m + 2 and r[m] == 'ABSORB':
                 try: self.credit(c, r, float(r[m + 2]))
                 except ValueError: pass
+                if enemy_hit and not swing and r[9] in AVOID_S:      # fully soaked by a shield: still an avoidable hit
+                    try: c['avoid'].append((t, r[5], AVOID_S[r[9]], float(r[m + 2])))
+                    except ValueError: pass
             if not swing and r[9] == TEMPEST and r[5].startswith('Player-'):
                 amt = 0.0
                 if len(r) > m + 2 and r[m] == 'ABSORB':
@@ -333,8 +380,13 @@ class Parser:
                           'tempest': {nm(g): {'hits': d['hits'], 'dmg': round(d['dmg']), 't': d['t']} for g, d in p['tempest'].items()},
                           'tempestCasts': p['tempestCasts'],
                           'ports': {nm(g): n for g, n in p['ports'].items()},
-                          'surges': self.build_surges(p, nm)})
-        return {'step': 0.25, 'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+                          'surges': self.build_surges(p, nm),
+                          'heal': {nm(g): round(v) for g, v in p['heal'].items()},
+                          'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],
+                          'avoid': [[round(t, 2), nm(g), s, round(v)] for t, g, s, v in p['avoid']],
+                          'deaths': [[round(t, 2), nm(g), (lambda h: h[1] if h and t - h[0] <= 5 else None)(p['lasthit'].get(g)), None]
+                                     for g, t in sorted(p['died'].items(), key=lambda kv: kv[1])]})
+        return {'step': 0.25, 'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'tz': self.tz,
                 'pulls': pulls, 'specs': dict(self.specs)}
 
 
@@ -357,6 +409,11 @@ class FangsParser:
     NOT_CAUSE = {'1290480', '1290336', '1308482', '1303235', '1294976', '1310102', '1310099', '1310096', '1303230', '1289192'}
     # ^ Eternal Venom itself, Rouse the Brood, Blood Torrent, Toxic Fumes, Tainted Blood, Feasted, the tank's Caustic Deluge debuff
     LABEL = {'1290338': 'Caustic Globule burst (unsoaked)', '1289994': 'Caustic Deluge (falling globule)'}
+    # avoidable hits (Wowhead guide + journal): Stir the Depths waves (1292807; not its raid pulse), Vile Flood, acid
+    # splashes, Coiling Ichor on anyone but its carrier (the page checks), gore pools, Sanguine Storm, Submerge impacts and
+    # slicks, Barbed Bulwark. The page drops tanks for Vile Flood.
+    AVOID = {'1292807': 'Stir the Depths wave', '1294605': 'Vile Flood', '1289994': 'Caustic Deluge splash', '1290878': 'Coiling Ichor',
+             '1292552': 'Congealed Gore', '1306876': 'Sanguine Storm', '1308556': 'Submerge', '1309471': 'Noxious Slick', '1307363': 'Barbed Bulwark'}
     # CC auras (cast ID / applied aura ID where they differ) from the raid's classes
     CC = {'221562': 'Asphyxiate', '207167': 'Blinding Sleet', '46968': 'Shockwave', '132168': 'Shockwave', '107570': 'Storm Bolt',
           '132169': 'Storm Bolt', '5246': 'Intimidating Shout', '179057': 'Chaos Nova', '1234195': 'Void Nova', '217832': 'Imprison',
@@ -385,6 +442,7 @@ class FangsParser:
         self.pulls, self.cur, self.leftover = [], None, ''
         self.names, self.specs, self.pets = {}, {}, {}
         self.finished = 0          # count of kept pulls that have ended
+        self.tz = None
 
     def has_data(self): return bool(self.pulls) or bool(self.cur and self.cur['twin'])
 
@@ -409,12 +467,12 @@ class FangsParser:
     def start(self, l, rest):
         r = Parser.split(rest)
         if r[1] == ENC: self.cur = None; return              # Sszorak has its own parser
-        when = l.split(' ', 1)
+        when = l.split(' ', 1); self.tz = log_tz(l)
         self.cur = dict(enc=r[1], encName=r[2], t0=Parser.ts(l), clock=when[1][:8].split('.')[0], date=when[0], diff=int(r[3]),
                         twin='twin fangs' in r[2].lower(), dur=0.0, kill=False, ended=False, lastT=0.0,
                         track={}, ctrack={}, specGuid={}, died=[], dmg={}, heal={}, hp={},
                         hits={}, stacks={}, venom=[], deluges=[], rouses=[], glob={}, soaks=[], bursts=[], cc=[], bulwark=set(),
-                        ichor={}, ichorOut=[], casts=[], open={}, feasts=[], feastHits=[], tainted=[])
+                        ichor={}, ichorOut=[], casts=[], open={}, feasts=[], feastHits=[], tainted=[], dispels=[], avoid=[])
 
     def close(self, r):
         c = self.cur
@@ -524,6 +582,10 @@ class FangsParser:
             cast = c['open'].pop(src, None)
             if cast: cast['res'] = 'stopped'
             return
+        if ev == 'SPELL_DISPEL':                 # a player cleansing a debuff off a player
+            o = self.owner(src)
+            if o and len(r) > 13 and dst.startswith('Player-'): c['dispels'].append((t, o, dst, r[13].strip('"')))
+            return
         if ev == 'SPELL_INTERRUPT' and self.BURST in (r[12] if len(r) > 12 else '', r[29] if len(r) > 29 else ''):
             cast = c['open'].pop(dst, None)
             if cast:
@@ -535,6 +597,10 @@ class FangsParser:
         if ev.endswith('_DAMAGE') or ev.endswith('_MISSED'):
             if dst.startswith('Player-') and not src.startswith('Player-'):
                 c['hits'].setdefault(dst, []).append((t, sid, 'Melee' if swing else r[10]))
+                if sid in self.AVOID:          # damage taken, shields included
+                    try: a = float(r[k + 19]) - max(float(r[k + 21]), 0) + max(float(r[k + 25]), 0) if ev.endswith('_DAMAGE') else float(r[k + 2]) if r[k] == 'ABSORB' else 0.0
+                    except (ValueError, IndexError): a = 0.0
+                    c['avoid'].append((t, dst, self.AVOID[sid], a))
                 if sid == self.SOAK: c['soaks'].append((t, dst))
                 elif sid == self.RUPTURE: c['bursts'].append((t, dst))
                 elif sid in self.FEAST_HITS: c['feastHits'].append((t, dst))
@@ -673,8 +739,719 @@ class FangsParser:
                         'deaths': deaths, 'bpos': bpos, 'rc': rc,
                         'deluges': [round(t, 2) for t in p['deluges']], 'rouses': [round(t, 2) for t in p['rouses']],
                         'venom': venom, 'stacks': stacks_max, 'globules': globules, 'soaks': soaks, 'ichor': ichor, 'brood': brood, 'feasts': feasts,
+                        'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],
+                        'avoid': [[round(t, 2), nm(g), s, round(v)] for t, g, s, v in p['avoid']],
                         'dmg': {nm(g): round(v) for g, v in p['dmg'].items()}, 'heal': {nm(g): round(v) for g, v in p['heal'].items()}})
-        return {'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'pulls': out, 'specs': dict(self.specs)}
+        return {'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'tz': self.tz, 'pulls': out, 'specs': dict(self.specs)}
+
+
+class KithixParser:
+    """Kith'ix (The Unbinding of Kith'ix), any difficulty. Abilities are matched by spell NAME inside the encounter, not by
+    ID: the Encounter Journal's IDs often differ from the log's, and each difficulty can use its own ID. The page does
+    the scoring; this keeps the raw events it needs: boss casts, chosen debuffs (on/off and top stack), avoidable and
+    tracked hits (with where the player stood), add deaths, Gut Reaction / Dark Frenzy on adds, healing into Abyssal Grasp,
+    damage, healing and deaths. Every hostile spell seen is also listed per pull ('seen'), to check the names against real logs.
+    Checked against 32 Heroic pulls (Oct 2026): the log uses the journal's names. Fixate never shows in the log, so which
+    player a Bomber Beetle chased isn't known; Gut Reaction (on the beetle from spawn, 30 s) ends early when it touches someone."""
+    ENC, BOSS, BEETLE = '3513', '-267861-', '-268194-'   # Kith'ix, and the Bomber Beetle's creature id
+    CASTS = {"Suffocating Darkness", 'Extinguish', 'Stygian Howl', 'Divine Radiance', 'Eightfold Eclipse', 'Voidswarm',
+             'Dark Devastation', 'Null Gate', 'Unspeakable Horrors', 'Twisted Appendage', 'Negation'}
+    AURAS = {'Abyssal Grasp', "Light's Embrace", 'Overwhelming Fear', 'Unspeakable Horrors', 'Digestive Juices',
+             'Mindsting', 'Eclipse Fragment', 'Lost Refulgence', 'Null Gate', 'Nullify', 'Negation', 'Devastated', 'Exhausted'}
+    HITS = {'Venom Roar', 'Twisted Appendage', 'Suffocation', 'Dark Devastation', 'Voidscar', 'Overwhelming Fear', 'Extinguish',
+            'Null Gate', 'Nullshards', 'Explosive Restabilization'}
+    NPC_AURAS = {'Dark Frenzy', 'Gut Reaction'}
+    ADDS = {'Venomous Hulk', 'Voidweaver', 'Bomber Beetle', 'Mindstinger', 'Mindstinger Egg'}
+
+    def __init__(self):
+        self.pulls, self.cur, self.leftover = [], None, ''
+        self.names, self.specs, self.pets = {}, {}, {}
+        self.finished = 0
+        self.tz = None
+
+    def has_data(self): return bool(self.pulls) or bool(self.cur)
+
+    def feed(self, text):
+        text = self.leftover + text
+        end = text.rfind('\n')
+        if end < 0:
+            self.leftover = text; return
+        pos = 0
+        while pos < end:
+            if self.cur is None:                 # skip to the next Kith'ix pull
+                m = text.find('ENCOUNTER_START,' + self.ENC + ',', pos)
+                if m < 0 or m >= end: break
+                pos = text.rfind('\n', 0, m) + 1
+            nl = text.find('\n', pos)
+            if nl < 0 or nl > end: nl = end
+            try: self.line(text[pos:nl])
+            except (IndexError, ValueError): pass
+            pos = nl + 1
+        self.leftover = text[end + 1:]
+
+    def owner(self, g):
+        return g if g.startswith('Player-') else self.pets.get(g)
+
+    def line(self, l):
+        l = l.rstrip('\r')
+        sep = l.find('  ')
+        if sep < 0: return
+        rest = l[sep + 2:]
+        ev = rest[:rest.find(',')]
+        c = self.cur
+        if ev == 'ENCOUNTER_START':
+            r = Parser.split(rest)
+            if c: self.close(None)
+            if r[1] != self.ENC: return
+            when = l.split(' ', 1); self.tz = log_tz(l)
+            self.cur = dict(enc=r[1], t0=Parser.ts(l), clock=when[1][:8].split('.')[0], date=when[0], diff=int(r[3]), size=int(r[4]),
+                            dur=0.0, kill=False, ended=False, lastT=0.0, hp=None, track={}, specGuid={}, died=[], npcDied=[],
+                            dmg={}, heal={}, lasthit={}, casts={}, auras={}, open={}, hits=[], npc=[], npcOpen={}, grasp={}, seen={},
+                            juice=[], bpos={}, hatched=[], dispels=[])
+            return
+        if c is None: return
+        t = Parser.ts(l) - c['t0']; c['lastT'] = t
+        if ev == 'ENCOUNTER_END':
+            r = rest.split(',')
+            if r[1] == self.ENC: self.close(r)
+            return
+        if ev == 'COMBATANT_INFO':
+            r = rest.split(',', 27)
+            try: c['specGuid'][r[1]] = int(r[25])
+            except (ValueError, IndexError): pass
+            return
+        r = Parser.split(rest)
+        if ev == 'UNIT_DIED':
+            if len(r) > 5:
+                if r[5].startswith('Player-'): c['died'].append((t, r[5]))
+                elif r[5].startswith('Creature-') and r[6].strip('"') in self.ADDS: c['npcDied'].append((t, r[5].rsplit('-', 1)[-1], r[6].strip('"')))
+            return
+        if not (ev.startswith('SPELL_') or ev.startswith('SWING_') or ev.startswith('RANGE_')): return
+        src, dst = r[1], r[5]
+        if src.startswith('Player-'): self.names[src] = r[2].split('-')[0]
+        if dst.startswith('Player-'): self.names[dst] = r[6].split('-')[0]
+        swing = ev.startswith('SWING_')
+        sid, sname = ('', 'Melee') if swing else (r[9], r[10].strip('"'))
+        if ev == 'SPELL_SUMMON':
+            o = self.owner(src)
+            if o: self.pets[dst] = o
+            return
+        hostile_src = not src.startswith('Player-') and not self.owner(src)
+        if ev == 'SPELL_HEAL_ABSORBED':        # a heal eaten by Abyssal Grasp: credit the healer (r[12]) with the amount
+            if sname == 'Abyssal Grasp':
+                o = self.owner(r[12])
+                try: v = float(r[-2])
+                except ValueError: v = 0.0
+                if o and v > 0: c['grasp'][o] = c['grasp'].get(o, 0) + v
+            return
+        if not swing and ev != 'SPELL_ABSORBED':   # every enemy spell (and Liadrin's) in the pull, for checking names against the journal
+            try: hostile = int(r[3], 16) & 0x40
+            except ValueError: hostile = 0
+            if hostile or r[2] == '"Lady Liadrin"':
+                s = c['seen'].setdefault(sname, {}); s[sid] = s.get(sid, 0) + 1
+        # positions from the advanced-logging block (and the boss's health)
+        k = 9 if swing else 12
+        if len(r) > k + 17 and '-' in r[k]:
+            info = r[k]
+            own = r[k + 1]
+            if own and own.startswith('Player-') and not info.startswith('Player-'): self.pets[info] = own
+            try:
+                if info.startswith('Player-'): Parser.add_pt(c['track'].setdefault(info, []), t, float(r[k + 14]), float(r[k + 15]))
+                elif self.BOSS in info:
+                    hp, mx = float(r[k + 2]), float(r[k + 3])
+                    if mx > 0: c['hp'] = hp / mx
+                elif self.BEETLE in info:             # a Bomber Beetle's last known spot (for where it blew up)
+                    c['bpos'][info.rsplit('-', 1)[-1]] = (t, float(r[k + 14]), float(r[k + 15]))
+            except ValueError: pass
+        # ---- an egg that finished hatching (killing it in time stops the cast), and who dispelled each Overwhelming Fear
+        if sname == 'Hatch' and ev == 'SPELL_CAST_SUCCESS':
+            c['hatched'].append(t); return
+        if ev == 'SPELL_DISPEL' and len(r) > 13 and dst.startswith('Player-'):   # a player cleansing a debuff off a player
+            o = self.owner(src) or (src if src.startswith('Player-') else None)
+            if o: c['dispels'].append((t, o, dst, r[13].strip('"')))
+            return
+        # ---- boss casts (first event of each cast; a cast's START and SUCCESS a few seconds apart count once)
+        if ev in ('SPELL_CAST_START', 'SPELL_CAST_SUCCESS') and hostile_src and sname in self.CASTS:
+            ts_ = c['casts'].setdefault(sname, [])
+            if not ts_ or t - ts_[-1] > 4.0: ts_.append(t)
+            return
+        # ---- debuffs on players (and Dark Frenzy on adds)
+        if ev.startswith('SPELL_AURA'):
+            if sname in self.NPC_AURAS and not dst.startswith('Player-'):     # [aura, add, add id, on, off]
+                key = (sname, dst)
+                if ev == 'SPELL_AURA_APPLIED':
+                    a = c['npcOpen'][key] = [sname, r[6].strip('"'), dst.rsplit('-', 1)[-1], t, None]; c['npc'].append(a)
+                elif ev == 'SPELL_AURA_REMOVED' and key in c['npcOpen']:
+                    c['npcOpen'].pop(key)[4] = t
+                return
+            # every beetle explosion puts a Digestive Juices stack on the raid and resets its timer: keep each explosion
+            # with the highest stack it took anyone to (lines under 0.3 s apart are one explosion)
+            if sname == 'Digestive Juices' and dst.startswith('Player-') and ev in ('SPELL_AURA_APPLIED', 'SPELL_AURA_APPLIED_DOSE'):
+                try: n = int(r[-1]) if ev == 'SPELL_AURA_APPLIED_DOSE' else 1
+                except ValueError: n = 1
+                j = c['juice']
+                if j and t - j[-1][0] < 0.3: j[-1][1] = max(j[-1][1], n)
+                else: j.append([t, n])
+            if sname not in self.AURAS or not dst.startswith('Player-'): return   # any source: Light's Embrace may be logged as the player's own
+            key = (sname, dst)
+            if ev == 'SPELL_AURA_APPLIED':
+                if key in c['open']: self.shut(c, key, t)
+                c['open'][key] = [sname, dst, t, None, 1, src.rsplit('-', 1)[-1] if '-' in src else '']
+            elif ev in ('SPELL_AURA_APPLIED_DOSE', 'SPELL_AURA_REFRESH'):
+                a = c['open'].get(key)
+                if not a: a = c['open'][key] = [sname, dst, t, None, 1, src.rsplit('-', 1)[-1] if '-' in src else '']
+                if ev == 'SPELL_AURA_APPLIED_DOSE':
+                    try: a[4] = max(a[4], int(r[-1]))
+                    except ValueError: a[4] += 1
+            elif ev == 'SPELL_AURA_REMOVED' and key in c['open']:
+                self.shut(c, key, t)
+            return
+        # ---- hits on players, and damage / healing done
+        if ev.endswith('_DAMAGE') or ev.endswith('_MISSED'):
+            amt = 0.0
+            if ev.endswith('_DAMAGE'):
+                try: amt = float(r[k + 19]) - max(float(r[k + 21]), 0) + max(float(r[k + 25]), 0)
+                except (ValueError, IndexError): amt = 0.0
+            elif len(r) > k + 2 and r[k] == 'ABSORB':      # fully soaked by a shield: still damage taken (or done)
+                try: amt = float(r[k + 2])
+                except ValueError: amt = 0.0
+            if dst.startswith('Player-') and hostile_src:
+                c['lasthit'][dst] = (t, sname)
+                if sname in self.HITS:
+                    c['hits'].append((t, dst, sname, amt, Parser.pos_at(c['track'].get(dst, []), t)))
+            elif amt > 0 and not dst.startswith('Player-'):
+                try: hostile_dst = not (int(r[7], 16) & 0x10)
+                except ValueError: hostile_dst = False
+                o = self.owner(src)
+                if hostile_dst and o: c['dmg'][o] = c['dmg'].get(o, 0) + amt
+            return
+        if ev in ('SPELL_HEAL', 'SPELL_PERIODIC_HEAL'):
+            try: val = float(r[k + 19]) - max(float(r[k + 21]), 0)
+            except (ValueError, IndexError): val = 0.0
+            o = self.owner(src)
+            if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
+            return
+        if ev == 'SPELL_ABSORBED':           # shields: credited to whoever cast the shield
+            a = 9 if (r[9].startswith('Player-') or r[9].startswith('Creature-') or r[9].startswith('Pet-')) else 12
+            try:
+                o = self.owner(r[a]); val = float(r[a + 7])
+                if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
+            except (ValueError, IndexError): pass
+
+    def beetles(self, p, nm):
+        """Each Bomber Beetle: [spawn, end, outcome, stack, [x, y], nearest player]. Gut Reaction is on it from spawn (30 s);
+        it exploded if Digestive Juices went out as Gut Reaction ended: 'contact' when that was early (someone reached it),
+        'timer' when it ran out. 'killed' died without exploding; 'alive' was still up when the pull ended. stack = the raid's
+        Digestive Juices stack that explosion caused (1 is fine). Position: its last known spot, if seen in its final 3 s;
+        nearest player: whoever stood closest to that spot (within 6 yd), the likely one who touched it."""
+        dead = {i for _, i, s in p['npcDied'] if s == 'Bomber Beetle'}
+        out = []
+        for a, s, i, on, off in p['npc']:
+            if a != 'Gut Reaction': continue
+            boom = next((j for j in p['juice'] if off is not None and off - 0.05 <= j[0] <= off + 0.5), None)
+            outcome = ('contact' if off - on < 29 else 'timer') if boom else 'killed' if i in dead else 'alive'
+            bp = p['bpos'].get(i)
+            pos = [round(bp[1], 2), round(bp[2], 2)] if bp and off is not None and off - 3 <= bp[0] <= off + 0.5 else None
+            near = None
+            if pos and boom:
+                best = None
+                for g, tr in p['track'].items():
+                    q = Parser.pos_at(tr, off)
+                    if q:
+                        d = ((q[0] - pos[0]) ** 2 + (q[1] - pos[1]) ** 2) ** 0.5
+                        if d <= 6 and (best is None or d < best[0]): best = (d, g)
+                near = nm(best[1]) if best else None
+            out.append([round(on, 2), round(off, 2) if off is not None else None, outcome, boom[1] if boom else 0, pos, near])
+        return sorted(out, key=lambda b: b[0])
+
+    def shut(self, c, key, t):
+        a = c['open'].pop(key); a[3] = t
+        c['auras'].setdefault(a[0], []).append(a)
+
+    def close(self, r):
+        c = self.cur
+        if r: c['kill'], c['dur'] = r[5] == '1', int(r[6]) / 1000
+        else: c['dur'] = c['lastT']
+        c['ended'] = True
+        self.pulls.append(c); self.finished += 1
+        self.cur = None
+
+    def build(self, log_name):
+        nm = lambda g: self.names.get(g, g)
+        pulls = self.pulls + ([self.cur] if self.cur else [])
+        for p in pulls:
+            for g, sp in p['specGuid'].items():
+                if g in self.names: self.specs[self.names[g]] = sp
+        out = []
+        for n, p in enumerate(pulls, 1):
+            stop = p['dur'] if p['ended'] else p['lastT']
+            r2 = lambda v: round(v, 2) if v is not None else None
+            # debuffs: name -> [player, on, off (null = still on at the end), top stack, source id]
+            auras = {}
+            for a in [x for v in p['auras'].values() for x in v] + list(p['open'].values()):
+                auras.setdefault(a[0], []).append([nm(a[1]), r2(a[2]), r2(a[3]), a[4], a[5],
+                                                   Parser.pos_at(p['track'].get(a[1], []), a[3] if a[3] is not None else stop)])
+            for v in auras.values(): v.sort(key=lambda x: x[1])
+            deaths = []
+            for t, g in sorted(p['died']):
+                lh = p['lasthit'].get(g)
+                back = next((q[0] for q in p['track'].get(g, []) if q[0] > t + 1.0), None)
+                deaths.append([round(t, 2), nm(g), lh[1] if lh and t - lh[0] <= 5 else None, r2(back)])
+            out.append({'n': n, 'enc': p['enc'], 'clock': p['clock'], 'date': p['date'], 'diff': p['diff'], 'size': p['size'],
+                        'dur': round(stop, 1), 'kill': p['kill'], 'live': not p['ended'], 'hp': r2(p['hp']) if p['hp'] is not None else None,
+                        'casts': {k: [round(t, 2) for t in v] for k, v in p['casts'].items()},
+                        'auras': auras,
+                        'hits': [[round(t, 2), nm(g), s, round(a), q] for t, g, s, a, q in p['hits']],
+                        'adds': [[round(t, 2), i, s] for t, i, s in p['npcDied']],
+                        'npc': [[a, s, i, round(on, 2), r2(off)] for a, s, i, on, off in p['npc']],
+                        'beetles': self.beetles(p, nm),
+                        'hatched': [round(t, 2) for t in p['hatched']],
+                        'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],   # [time, dispeller, target, debuff]
+                        'grasp': {nm(g): round(v) for g, v in p['grasp'].items()},
+                        'deaths': deaths, 'seen': {s: v for s, v in p['seen'].items()},
+                        'dmg': {nm(g): round(v) for g, v in p['dmg'].items()}, 'heal': {nm(g): round(v) for g, v in p['heal'].items()}})
+        return {'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'tz': self.tz, 'pulls': out, 'specs': dict(self.specs)}
+
+
+# ---- the other bosses of the tier: one parser, set up per boss by ability NAME (checked against Taylor's logs,
+# Aug-Oct 2026). A key that starts with '#' is a spell ID instead, for abilities whose name is shared by two spells
+# (e.g. Catalytic Bile: the soak and the raid-wide hit when nobody soaked it). The pages do the scoring, mechanic by mechanic.
+#   casts:  boss / add casts kept as times (and who a cast landed on)  kicks: casts that should be interrupted
+#   auras:  debuffs on players (on, off, top stack, stack when it ended, where the player was when it went on and off)
+#   npc:    buffs and debuffs on NPCs (on, off, top stack, where the NPC was)
+#   hits:   damage to players kept one by one, with where the player stood
+#   pulses: raid-wide hits kept as one line per hit (time, players hit, damage); 'aura:Name' = a debuff going out
+#   adds:   NPCs whose spawns and deaths (with where they died) are kept
+FAIL_BOSSES = [
+    dict(slug='nekzali', name="Nek'zali", enc='3470', boss={'259927': "Nek'zali"},
+         casts={'Invoke', 'Soulcoil Ignition', 'Uncoiled Rage', 'Ritual of Awakening', 'Hungering Pyre', 'Essence Rend',
+                'Possession Barrage', 'Soul Transfer', 'Grasping Depths'},
+         kicks={"Soulcoiler's Curse"},
+         auras={'Soulcoiled', 'Invoke', 'Swirling Spirit', '#1287434', 'Ritual Burn', 'Hollowing Strikes', 'Possession Barrage',
+                'Slithering Flame'},
+         npc={'Soulcoil Ignition', 'Vessel of Awakening', 'Uncoiled Rage', 'Ritual of Awakening', 'Uncoiling', 'Gravebound Advance',
+              'Tether of Awakening'},
+         hits={'Latent Cultist', 'Anguished Echoes', 'Soul Transfer', 'Swirling Spirit', 'Soulcoil Well', 'Deadly Venom', 'Hungering Pyre'},
+         pulses={'Soulcoil Rite', 'Possession Barrage', 'Hungering Pyre'},
+         adds={'Restless Amani', 'Echo of Jawae', 'Drowned Echo'}),
+    dict(slug='entombed-sentinels', name='Entombed Sentinels', enc='3445', boss={'258557': 'Breath', '258558': 'Blood'},
+         casts={'Vitriolic Stasis', 'Toxic Droplets', 'Venom Coagulation', 'Unstable Miasma', 'Shifting Protovenom', 'Berserk', 'Blighted Blood'},
+         kicks=set(),
+         auras={'Shifting Protovenom', 'Cultivated Burst', 'Helical Toxins', 'Unstable Miasma', 'Blighted Blood', 'Clinging Murk',
+                'Bloodvenom Injection'},
+         npc={"Ula'tek's Dominance", 'Berserk', 'Vitriolic Stasis'},
+         hits={'Protovenom Eruption', 'Blood Venom', 'Living Venom', 'Deadly Venom', 'Toxic Droplets', 'Unstable Miasma', 'Cultivated Burst'},
+         pulses={'Noxious Blast', 'Unstable Miasma', 'Protovenom Eruption', 'Contaminate'},
+         adds={'Venom Coagulation'}),
+    dict(slug='vashnik', name='Vashnik', enc='3455', boss={'259181': 'Vashnik'},
+         casts={'Imbibe', 'Malignance', 'Malignant Burst', 'Malignant Catalyst', 'Plague Froth', 'Adaptive Infection', 'Dripping Fangs'},
+         kicks=set(),
+         auras={'#1281913', 'Caustic Surge', 'Exploding Infection', 'Stygian Infection', 'Siphoning Infection', 'Dripping Fangs'},
+         npc={'Imbibe', 'Flame Infusion', 'Shadow Infusion', 'Blood Infusion', 'Hardened Venom'},
+         hits={'Plague Wave', 'Plague Froth', 'Stygian Burst', 'Virulent Fumes', 'Deadly Venom', 'Umbral Ejection', '#1282602'},
+         pulses={'Malignance', 'Malignant Burst', '#1282616', '#1282602', 'Caustic Surge', 'Caustic Explosion'},
+         adds={'Burning Venom', 'Shrouded Venom', 'Clotting Venom', 'Malignant Totem'}),
+    dict(slug='lost-explorers', name='The Lost Explorers', enc='3497', boss={'261835': 'Nama', '267076': 'Iku', '261848': 'Gebbo'},
+         casts={'Final Ascension', "Mor'zahi's Command", 'Explosive Surprise', 'Mighty Thud', 'Frostfire Volley', 'Shell Spin',
+                'Throw Junk', 'Mushroom Toss', 'Blink Nova'},
+         kicks={'Icebound Flames'},
+         auras={'Splinters', 'Shell Spin', 'Burning Flames', 'Piercing Frost', 'Shredding Shards', 'Steady Strikes', 'Explosive Surprise',
+                'Mighty Thud', 'Icebound Flames'},
+         npc={'United Defense', 'Relentless Escalation', 'Smashing Shovel', 'Final Ascension', "Mor'zahi's Command", 'Disgusting Fish'},
+         hits={'Blast Wave', 'Evil Eyes', 'Fungal Burst', 'Spreading Flames', 'Throw Junk', 'Concussive Blast', 'Fire Patch',
+               'Frost Patch', 'Shell Spin', 'Deadly Venom', 'Aftershock', 'Frostfire Volley', '#1300237'},
+         pulses={'Final Ascension', 'Relic Rupture', 'Elemental Explosion', 'Cataclysmic Invocation', 'Fishy Feedback', '#1300237'},
+         adds=set()),
+    dict(slug='coiled-altar', name='The Coiled Altar', enc='3429', boss={'270093': "Zul'jan", '270405': 'Malacrass'},
+         casts={'Dreadmarch', 'Guillotine', 'Grim Guillotine', 'Spiritcackle', 'Soulbinding', 'Toxic Deluge', 'Gloombomb', 'Sever',
+                'Soul Sever', 'Blighted Sever', 'Venomfang'},
+         kicks={'Wail of Terror', 'Eternal Nightfall'},
+         auras={'Dreadmarch', 'Gravebound', 'Gloombomb', 'Volatile Venom', 'Sever', 'Soul Sever', 'Blighted Sever', '#1283485',
+                '#1307425', '#1299266', '#1307652', 'Venomfang', 'Wail of Terror', 'Venom Rupture'},
+         npc={'Consumed by Resentment', 'Veil of Twilight', 'Soulbinding'},
+         hits={'Axegrinder', 'Noxious Ground', 'Defiled Ground', "Widow's Kiss", "Death's Embrace", 'Gloombomb', 'Volatile Venom',
+               'Sever', 'Soul Sever', 'Blighted Sever', 'Deadly Venom', 'Unworthy', '#1297906', '#1283594', '#1299296'},
+         pulses={'Execution', 'Grim Execution', 'Reclaim Essence', 'Eternal Nightfall', '#1283594', '#1299296', 'Spirit Erasure'},
+         adds={'Spiteful Soulcoiler'}),
+    dict(slug='ulatek', name="Ula'tek", enc='3492', boss={'268956': "Ula'tek"},
+         casts={'Rage of the Shackled', 'Call of the Serpent', "Serpent's Bite", 'Circling Prey', 'Spectral Coils', 'Caustic Waves',
+                'Grasping Fangs', "Mother's Wrath"},
+         kicks={'Malice', 'Anguished Cry', 'Vicious Echoes'},
+         auras={'Calcified Corpse', "Serpent's Bite", 'Volatile Purge', 'Soul Constrictor', 'Malignant Shell', 'Noxious Shell',
+                'Grasping Fangs', 'Blight Vein', 'Stone Venom', 'Caustic Waves', 'Doomscale Shell'},
+         npc={'Fury Unleashed', 'Berserk', 'Boiling Venom', 'Writhing Gestation'},
+         hits={'Caustic Waves', 'Falling Debris', 'Virulent Spit', '#1305878', 'Desperate Thrash', '#1304270', 'Deadly Venom',
+               'Petrifying Sting'},
+         pulses={'aura:Putrid Membrane', 'Rattler Slam', 'Unchecked Rage', '#1301122', 'Dread Roar', 'Fury Unleashed', '#1318329',
+                 'aura:Soul Constrictor', 'aura:Blight Vein', 'Spectral Coils'},
+         adds={'Doomscale Warden', 'Weakened Doomscale', 'Ravenous Doomscale', 'Blightscale Viper', 'Blightscale Shrieker'}),
+]
+
+
+class FailParser:
+    """One boss from FAIL_BOSSES, any difficulty: the raw events its page scores mechanic by mechanic (casts and their
+    targets, kicks, debuffs with stacks and where they went on and off, hits with positions, raid-wide hits, NPC auras,
+    add spawns and deaths, the bosses' positions), plus the standard ones every page has (damage, healing, dispels,
+    deaths). Every hostile spell seen is also listed per pull ('seen'), to check the names against real logs."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.ENC = cfg['enc']
+        self.pulls, self.cur, self.leftover = [], None, ''
+        self.names, self.specs, self.pets = {}, {}, {}
+        self.finished = 0
+        self.tz = None
+
+    def has_data(self): return bool(self.pulls) or bool(self.cur)
+
+    def feed(self, text):
+        text = self.leftover + text
+        end = text.rfind('\n')
+        if end < 0:
+            self.leftover = text; return
+        pos = 0
+        while pos < end:
+            if self.cur is None:                 # skip to the next pull of this boss
+                m = text.find('ENCOUNTER_START,' + self.ENC + ',', pos)
+                if m < 0 or m >= end: break
+                pos = text.rfind('\n', 0, m) + 1
+            nl = text.find('\n', pos)
+            if nl < 0 or nl > end: nl = end
+            try: self.line(text[pos:nl])
+            except (IndexError, ValueError): pass
+            pos = nl + 1
+        self.leftover = text[end + 1:]
+
+    def owner(self, g):
+        return g if g.startswith('Player-') else self.pets.get(g)
+
+    def want(self, group, sname, sid):
+        s = self.cfg[group]
+        return sname if sname in s else ('#' + sid) if ('#' + sid) in s else None
+
+    def npc_pos(self, c, g, t):
+        q = c['npos'].get(g)
+        return [round(q[1], 2), round(q[2], 2)] if q and t - q[0] <= 5 else None
+
+    def line(self, l):
+        l = l.rstrip('\r')
+        sep = l.find('  ')
+        if sep < 0: return
+        rest = l[sep + 2:]
+        ev = rest[:rest.find(',')]
+        c = self.cur
+        if ev == 'ENCOUNTER_START':
+            r = Parser.split(rest)
+            if c: self.close(None)
+            if r[1] != self.ENC: return
+            when = l.split(' ', 1); self.tz = log_tz(l)
+            self.cur = dict(enc=r[1], t0=Parser.ts(l), clock=when[1][:8].split('.')[0], date=when[0], diff=int(r[3]), size=int(r[4]),
+                            dur=0.0, kill=False, ended=False, lastT=0.0, hp={}, track={}, specGuid={}, died=[], npcDied=[],
+                            dmg={}, heal={}, lasthit={}, casts={}, ctgt={}, auras={}, open={}, hits=[], npc=[], npcOpen={}, seen={},
+                            kicks=[], kickOpen={}, pulses={}, dispels=[], npos={}, spawns=[], spawnG={}, diedG=set(), btrack={})
+            return
+        if c is None: return
+        t = Parser.ts(l) - c['t0']; c['lastT'] = t
+        if ev == 'ENCOUNTER_END':
+            r = rest.split(',')
+            if r[1] == self.ENC: self.close(r)
+            return
+        if ev == 'COMBATANT_INFO':
+            r = rest.split(',', 27)
+            try: c['specGuid'][r[1]] = int(r[25])
+            except (ValueError, IndexError): pass
+            return
+        r = Parser.split(rest)
+        if ev == 'UNIT_DIED':
+            if len(r) > 5:
+                if r[5].startswith('Player-'): c['died'].append((t, r[5]))
+                elif r[5].startswith(('Creature-', 'Vehicle-')) and r[6].strip('"') in self.cfg['adds'] and r[5] not in c['diedG']:
+                    c['diedG'].add(r[5])      # the log can say a unit died twice
+                    c['npcDied'].append((t, r[5].rsplit('-', 1)[-1], r[6].strip('"'), self.npc_pos(c, r[5], t), 'died'))
+            return
+        if not (ev.startswith('SPELL_') or ev.startswith('SWING_') or ev.startswith('RANGE_')): return
+        src, dst = r[1], r[5]
+        if src.startswith('Player-'): self.names[src] = r[2].split('-')[0]
+        if dst.startswith('Player-'): self.names[dst] = r[6].split('-')[0]
+        swing = ev.startswith('SWING_')
+        sid, sname = ('', 'Melee') if swing else (r[9], r[10].strip('"'))
+        if ev == 'SPELL_SUMMON':
+            o = self.owner(src)
+            if o: self.pets[dst] = o
+            elif r[6].strip('"') in self.cfg['adds']:
+                c['spawns'].append((t, r[6].strip('"'), dst.rsplit('-', 1)[-1])); c['spawnG'][dst] = (t, r[6].strip('"'))
+            return
+        hostile_src = not src.startswith('Player-') and not self.owner(src)
+        if not swing and ev != 'SPELL_ABSORBED':   # every enemy spell in the pull, for checking names against the journal
+            try: hostile = int(r[3], 16) & 0x40
+            except ValueError: hostile = 0
+            if hostile:
+                s = c['seen'].setdefault(sname, {}); s[sid] = s.get(sid, 0) + 1
+        # positions from the advanced-logging block: players, every NPC's last spot, the bosses' path and health
+        k = 9 if swing else 12
+        if len(r) > k + 17 and '-' in r[k]:
+            info = r[k]
+            own = r[k + 1]
+            if own and own.startswith('Player-') and not info.startswith('Player-'): self.pets[info] = own
+            try:
+                x, y = float(r[k + 14]), float(r[k + 15])
+                if info.startswith('Player-'): Parser.add_pt(c['track'].setdefault(info, []), t, x, y)
+                elif info.startswith(('Creature-', 'Vehicle-')) and not own.startswith('Player-'):
+                    c['npos'][info] = (t, x, y)
+                    b = self.cfg['boss'].get(info.split('-')[5])
+                    if b:
+                        hp, mx = float(r[k + 2]), float(r[k + 3])
+                        if mx > 0: c['hp'][b] = hp / mx
+                        bt = c['btrack'].setdefault(b, [])
+                        if not bt or t - bt[-1][0] >= 1.0: bt.append((t, x, y))
+            except (ValueError, IndexError): pass
+        if ev == 'SPELL_DISPEL' and len(r) > 13 and dst.startswith('Player-'):   # a player cleansing a debuff off a player
+            o = self.owner(src) or (src if src.startswith('Player-') else None)
+            if o: c['dispels'].append((t, o, dst, r[13].strip('"')))
+            return
+        # ---- kicks: each cast that should be interrupted, kicked (by whom) or missed (it went off)
+        if ev == 'SPELL_INTERRUPT' and len(r) > 13:
+            e = c['kickOpen'].get(dst)
+            if e and r[13].strip('"') == e[2] and e[3] in (None, 'missed') and (e[3] is None or t - e[6] < 0.6):
+                o = self.owner(src)
+                e[3], e[4] = 'kicked', self.names.get(o, o) if o else None
+            return
+        if hostile_src and sname in self.cfg['kicks']:
+            if ev == 'SPELL_CAST_START':
+                e = [t, r[2].strip('"'), sname, None, None, src.rsplit('-', 1)[-1], t]
+                c['kicks'].append(e); c['kickOpen'][src] = e
+            elif ev in ('SPELL_CAST_SUCCESS', 'SPELL_DAMAGE', 'SPELL_PERIODIC_DAMAGE', 'SPELL_AURA_APPLIED'):
+                e = c['kickOpen'].get(src)
+                if e and e[2] == sname and e[3] is None and t - e[0] > 0.2: e[3], e[6] = 'missed', t
+        # ---- boss and add casts (first event of each cast; a cast's START and SUCCESS a few seconds apart count once),
+        # and the players a cast landed on
+        if ev in ('SPELL_CAST_START', 'SPELL_CAST_SUCCESS') and hostile_src and sname in self.cfg['casts']:
+            ts_ = c['casts'].setdefault(sname, [])
+            if not ts_ or t - ts_[-1] > 4.0: ts_.append(t)
+            if ev == 'SPELL_CAST_SUCCESS' and dst.startswith('Player-'): c['ctgt'].setdefault(sname, []).append((t, dst))
+            return
+        # ---- debuffs on players, auras on NPCs, and debuffs going out raid-wide ('aura:' pulses)
+        if ev.startswith('SPELL_AURA'):
+            if not dst.startswith('Player-'):
+                if sname in self.cfg['npc'] and not self.owner(dst):     # [aura, unit, unit id, on, off, where the unit was, top stack]
+                    key = (sname, dst)
+                    if ev == 'SPELL_AURA_APPLIED':
+                        a = c['npcOpen'][key] = [sname, r[6].strip('"'), dst.rsplit('-', 1)[-1], t, None, self.npc_pos(c, dst, t), 1]
+                        c['npc'].append(a)
+                    elif ev == 'SPELL_AURA_APPLIED_DOSE' and key in c['npcOpen']:
+                        try: c['npcOpen'][key][6] = max(c['npcOpen'][key][6], int(r[-1]))
+                        except ValueError: pass
+                    elif ev == 'SPELL_AURA_REMOVED' and key in c['npcOpen']:
+                        c['npcOpen'].pop(key)[4] = t
+                return
+            if ev == 'SPELL_AURA_APPLIED' and ('aura:' + sname) in self.cfg['pulses']:
+                self.pulse(c, 'aura:' + sname, t, dst, 0.0)
+            name = self.want('auras', sname, sid)
+            if not name: return
+            key = (name, dst)
+            srcname = r[2].strip('"') if r[2] != 'nil' else ''
+            here = lambda: Parser.pos_at(c['track'].get(dst, []), t)
+            if ev == 'SPELL_AURA_APPLIED':
+                if key in c['open']: self.shut(c, key, t, None)
+                c['open'][key] = [name, dst, t, None, 1, srcname, here(), None, 1]
+            elif ev in ('SPELL_AURA_APPLIED_DOSE', 'SPELL_AURA_REMOVED_DOSE', 'SPELL_AURA_REFRESH'):
+                a = c['open'].get(key)
+                if not a: a = c['open'][key] = [name, dst, t, None, 1, srcname, here(), None, 1]
+                if ev != 'SPELL_AURA_REFRESH':
+                    try: a[8] = int(r[-1])
+                    except ValueError: a[8] += 1 if ev == 'SPELL_AURA_APPLIED_DOSE' else -1
+                    a[4] = max(a[4], a[8])
+            elif ev == 'SPELL_AURA_REMOVED' and key in c['open']:
+                self.shut(c, key, t, here())
+            return
+        # ---- hits on players (kept one by one, or as raid-wide pulses), and damage / healing done
+        if ev.endswith('_DAMAGE') or ev.endswith('_MISSED'):
+            amt = 0.0
+            if ev.endswith('_DAMAGE'):
+                try: amt = float(r[k + 19]) - max(float(r[k + 21]), 0) + max(float(r[k + 25]), 0)
+                except (ValueError, IndexError): amt = 0.0
+            elif len(r) > k + 2 and r[k] == 'ABSORB':      # fully soaked by a shield: still damage taken (or done)
+                try: amt = float(r[k + 2])
+                except ValueError: amt = 0.0
+            if dst.startswith('Player-') and (hostile_src or src == '0000000000000000'):
+                c['lasthit'][dst] = (t, sname)
+                h = self.want('hits', sname, sid)
+                if h: c['hits'].append((t, dst, h, amt, Parser.pos_at(c['track'].get(dst, []), t)))
+                pk = self.want('pulses', sname, sid)
+                if pk and 'PERIODIC' not in ev: self.pulse(c, pk, t, dst, amt)
+            elif amt > 0 and not dst.startswith('Player-'):
+                try: hostile_dst = not (int(r[7], 16) & 0x10)
+                except ValueError: hostile_dst = False
+                o = self.owner(src)
+                if hostile_dst and o: c['dmg'][o] = c['dmg'].get(o, 0) + amt
+            return
+        if ev in ('SPELL_HEAL', 'SPELL_PERIODIC_HEAL'):
+            if hostile_src and ev == 'SPELL_HEAL':
+                pk = self.want('pulses', sname, sid)
+                if pk: self.pulse(c, pk, t, dst, 0.0)
+                return
+            try: val = float(r[k + 19]) - max(float(r[k + 21]), 0)
+            except (ValueError, IndexError): val = 0.0
+            o = self.owner(src)
+            if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
+            return
+        if ev == 'SPELL_ABSORBED':           # shields: credited to whoever cast the shield
+            a = 9 if (r[9].startswith('Player-') or r[9].startswith('Creature-') or r[9].startswith('Pet-')) else 12
+            try:
+                o = self.owner(r[a]); val = float(r[a + 7])
+                if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
+            except (ValueError, IndexError): pass
+
+    @staticmethod
+    def pulse(c, key, t, dst, amt):
+        """One raid-wide hit: lines of the same ability under 1 s apart are one hit. [time, players hit, damage]."""
+        ps = c['pulses'].setdefault(key, [])
+        if ps and t - ps[-1][3] <= 1.0:
+            p = ps[-1]; p[3] = t
+        else:
+            p = [t, set(), 0.0, t]; ps.append(p)
+        if dst.startswith('Player-'): p[1].add(dst)
+        p[2] += amt
+
+    def shut(self, c, key, t, where):
+        a = c['open'].pop(key); a[3] = t; a[7] = where
+        c['auras'].setdefault(a[0], []).append(a)
+
+    def close(self, r):
+        c = self.cur
+        if r: c['kill'], c['dur'] = r[5] == '1', int(r[6]) / 1000
+        else: c['dur'] = c['lastT']
+        c['ended'] = True
+        self.pulls.append(c); self.finished += 1
+        self.cur = None
+
+    def build(self, log_name):
+        nm = lambda g: self.names.get(g, g)
+        pulls = self.pulls + ([self.cur] if self.cur else [])
+        for p in pulls:
+            for g, sp in p['specGuid'].items():
+                if g in self.names: self.specs[self.names[g]] = sp
+        out = []
+        r2 = lambda v: round(v, 2) if v is not None else None
+        for n, p in enumerate(pulls, 1):
+            stop = p['dur'] if p['ended'] else p['lastT']
+            # debuffs: name -> [player, on, off (null = still on at the end), top stack, source, [x, y] when it went on,
+            # [x, y] when it went off, stack when it went off]
+            auras = {}
+            for a in [x for v in p['auras'].values() for x in v] + list(p['open'].values()):
+                auras.setdefault(a[0], []).append([nm(a[1]), r2(a[2]), r2(a[3]), a[4], a[5], a[6], a[7], a[8]])
+            for v in auras.values(): v.sort(key=lambda x: x[1])
+            deaths = []
+            for t, g in sorted(p['died']):
+                lh = p['lasthit'].get(g)
+                back = next((q[0] for q in p['track'].get(g, []) if q[0] > t + 1.0), None)
+                deaths.append([round(t, 2), nm(g), lh[1] if lh and t - lh[0] <= 5 else None, r2(back), Parser.pos_at(p['track'].get(g, []), t)])
+            adds = list(p['npcDied'])
+            for g, (t, s) in p['spawnG'].items():      # spawned and never died: last seen where (an add that reached its goal vanishes)
+                if g in p['diedG']: continue
+                q = p['npos'].get(g)
+                adds.append((q[0] if q else t, g.rsplit('-', 1)[-1], s, [round(q[1], 2), round(q[2], 2)] if q else None, 'gone'))
+            adds.sort(key=lambda a: a[0])
+            out.append({'n': n, 'enc': p['enc'], 'clock': p['clock'], 'date': p['date'], 'diff': p['diff'], 'size': p['size'],
+                        'dur': round(stop, 1), 'kill': p['kill'], 'live': not p['ended'],
+                        'hp': {b: round(v, 3) for b, v in p['hp'].items()},
+                        'specs': {nm(g): sp for g, sp in p['specGuid'].items() if g in self.names},   # this pull's specs (who tanked)
+                        'casts': {k: [round(t, 2) for t in v] for k, v in p['casts'].items()},
+                        'ctgt': {k: [[round(t, 2), nm(g)] for t, g in v] for k, v in p['ctgt'].items()},   # [time, player it landed on]
+                        # [start, caster, cast, 'kicked' / 'missed' / null (stopped some other way), kicked by, caster id]
+                        'kicks': [[round(e[0], 2), e[1], e[2], e[3], e[4], e[5]] for e in p['kicks']],
+                        'auras': auras,
+                        'npc': [[a, s, i, round(on, 2), r2(off), q, top] for a, s, i, on, off, q, top in p['npc']],
+                        'hits': [[round(t, 2), nm(g), s, round(a), q] for t, g, s, a, q in p['hits']],
+                        'pulses': {k: [[round(x[0], 2), sorted(nm(g) for g in x[1]), round(x[2])] for x in v] for k, v in p['pulses'].items()},
+                        'spawns': [[round(t, 2), s, i] for t, s, i in p['spawns']],
+                        # [time it died (or was last seen), unit id, name, where, 'died' / 'gone' (never died: reached its goal or still up)]
+                        'adds': [[round(t, 2), i, s, q, how] for t, i, s, q, how in adds],
+                        'btrack': {b: [[round(t, 1), round(x, 1), round(y, 1)] for t, x, y in v] for b, v in p['btrack'].items()},
+                        'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],   # [time, dispeller, target, debuff]
+                        'deaths': deaths, 'seen': {s: v for s, v in p['seen'].items()},
+                        'dmg': {nm(g): round(v) for g, v in p['dmg'].items()}, 'heal': {nm(g): round(v) for g, v in p['heal'].items()}})
+        return {'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'tz': self.tz, 'pulls': out, 'specs': dict(self.specs)}
+
+
+class ActivityParser:
+    """Everything the raid fought in this log, for the timeline on every boss page: each boss pull (any boss, any
+    raid difficulty) and each stretch of trash combat (the raid's players and hostile NPCs hitting each other outside a
+    boss pull, in a zone where a raid boss was pulled). Times are UTC seconds, from the offset on the log's lines."""
+    GAP, MIN = 8.0, 3.0      # a trash fight ends after 8 s without a hit; fights under 3 s aren't kept
+    RAID = {14, 15, 16, 17}  # raid difficulties: Normal, Heroic, Mythic, LFR
+    HEAD = re.compile(r'([^,]+),([^,]*),(?:"[^"]*"|nil),(0x[0-9a-fA-F]+),0x[0-9a-fA-F]+,([^,]*),(?:"[^"]*"|nil),(0x[0-9a-fA-F]+)')
+    # flags: 0x100 = controlled by a player (players and their pets), 0x7 = in our group (mine / party / raid), 0x40 = hostile, 0x800 = NPC
+
+    def __init__(self):
+        self.leftover, self.tz, self.zone, self.last = '', None, None, None
+        self.pulls, self.open, self.trash, self.fight = [], None, [], None
+        self.zones, self.finished = set(), 0
+
+    def has_data(self): return bool(self.pulls) or bool(self.open)
+
+    def feed(self, text):
+        text = self.leftover + text
+        end = text.rfind('\n')
+        if end < 0:
+            self.leftover = text; return
+        for l in text[:end].split('\n'):
+            try: self.line(l)
+            except (IndexError, ValueError): pass
+        self.leftover = text[end + 1:]
+
+    def line(self, l):
+        sep = l.find('  ')
+        if sep < 0: return
+        if self.tz is None: self.tz = log_tz(l)
+        rest = l[sep + 2:]
+        if rest.startswith('SWING_DAMAGE') or rest.startswith('RANGE_DAMAGE') or (rest.startswith('SPELL_') and '_DAMAGE,' in rest[:30]):
+            if self.open: return
+            m = self.HEAD.match(rest)
+            if not m: return
+            sf, df = int(m.group(3), 16), int(m.group(5), 16)
+            ours = lambda f: f & 0x100 and f & 0x7
+            foe = lambda f: f & 0x40 and f & 0x800
+            if not ((ours(sf) and foe(df)) or (foe(sf) and ours(df))): return
+            t = self.utc(l); self.last = t
+            f = self.fight
+            if f and t - f[1] <= self.GAP: f[1] = t
+            else:
+                self.close_fight(); self.fight = [t, t, self.zone]
+            return
+        if rest.startswith('ENCOUNTER_START,'):
+            r = Parser.split(rest); t = self.utc(l)
+            self.close_fight()
+            if int(r[3]) not in self.RAID: return       # dungeons (Mythic+ etc.) don't belong on a raid timeline
+            self.open = [t, None, r[1], r[2], int(r[3]), False]
+            self.zones.add(self.zone)
+        elif rest.startswith('ENCOUNTER_END,') and self.open:
+            r = rest.split(',')
+            self.open[1], self.open[5] = int(r[6]) / 1000, r[5] == '1'
+            self.pulls.append(self.open); self.open = None; self.finished += 1
+        elif rest.startswith('ZONE_CHANGE,'):
+            self.close_fight(); self.zone = Parser.split(rest)[2]   # by name: the log gives every zone the same number (Silvermoon City, housing...)
+
+    def utc(self, l):
+        return Parser.ts(l) - (self.tz or 0) * 3600
+
+    def close_fight(self):
+        if self.fight: self.trash.append(self.fight)
+        self.fight = None
+
+    def build(self, log_name):
+        pulls = [[round(s, 1), round(d, 1), e, n, df, k, False] for s, d, e, n, df, k in self.pulls]
+        if self.open:      # a pull still going: as long as the log so far
+            s = self.open[0]; pulls.append([round(s, 1), round(max((self.last or s) - s, 0), 1), self.open[2], self.open[3], self.open[4], False, True])
+        trash = [[round(a, 1), round(b, 1)] for a, b, z in self.trash + ([self.fight] if self.fight else []) if z in self.zones and b - a >= self.MIN]
+        return {'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'tz': self.tz,
+                'pulls': pulls, 'trash': trash}
+
+def activity_entry(data, f):
+    """nights.json entry for an activity file (its date is the logger's date of the first pull or fight)."""
+    first = min([p[0] for p in data['pulls']] + [a for a, _ in data['trash']], default=None)
+    d = datetime.fromtimestamp(first + (data['tz'] or 0) * 3600, timezone.utc) if first is not None else None
+    return {'file': f, 'log': data['log'], 'date': f'{d.month}/{d.day}/{d.year}' if d else None, 'updated': data['updated']}
 
 
 # ---- GitHub ----
@@ -779,9 +1556,21 @@ class ServerUploader:
     """Sends files straight to your server: no commits, no build limit, live the moment they land."""
     live = True
     where = SITE_URL.split('//', 1)[1]
+    keep_dir = None      # repo folder: every raid data file sent is also saved here, so the repo stays a full copy of the server's data
 
     def __init__(self, token):
         self.token = token
+
+    def keep(self, path, data):
+        """Save a sent data file into keep_dir too (same bytes the server has). A failure here never stops an upload."""
+        if not self.keep_dir: return
+        full = os.path.join(self.keep_dir, path)
+        try:
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full + '.tmp', 'wb') as fh: fh.write(data)
+            os.replace(full + '.tmp', full)
+        except OSError as e:
+            print(f'\n[{stamp()}] Uploaded, but could not save the copy in {full}: {e}')
 
     def request(self, method, url, data=None, auth=True):
         headers = {'User-Agent': 'taynalysis-uploader'}
@@ -822,14 +1611,14 @@ class ServerUploader:
         for f, d, ip, entry in parts:
             text = json.dumps(d, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
             bar(step, steps, f'Uploading {f} ({fmt_size(len(text))})'); step += 1
-            self.put(f, text); total += len(text)
+            self.put(f, text); total += len(text); self.keep(f, text)
             bar(step, steps, f'Reading {ip}'); step += 1
             cur = self.get_text(ip)
             try: idx = json.loads(cur) if cur else None
             except ValueError: idx = None
             itext = json.dumps(merge_index(idx, entry), indent=1, ensure_ascii=False).encode('utf-8')
             bar(step, steps, f'Uploading {ip}'); step += 1
-            self.put(ip, itext); total += len(itext)
+            self.put(ip, itext); total += len(itext); self.keep(ip, itext)
         bar(steps, steps, f'Done · {fmt_size(total)} uploaded')
         print()
 
@@ -918,7 +1707,7 @@ def merge_index(idx, entry):
     return idx
 
 
-# ---- "notechange": copy the kick order and soak groups from the Northern Sky Raid Tools note into fangs-setup.txt ----
+# ---- "notechange": copy the kick order and soak groups from the Northern Sky Raid Tools note into the team's setup.txt ----
 def nsrt_strings(path):
     """Every string value in a SavedVariables file, as (table path, key, text). WoW writes these files on /reload or logout."""
     b = open(path, 'rb').read()
@@ -1004,7 +1793,7 @@ def parse_fangs_note(note):
     return out, warn
 
 def read_setup(text):
-    """key -> names from fangs-setup.txt (same keys the page accepts)."""
+    """key -> names from setup.txt (same keys the page accepts)."""
     alias = {'meleeleft': 'melee left', 'leftmelee': 'melee left', 'ml': 'melee left', 'meleeright': 'melee right', 'rightmelee': 'melee right', 'mr': 'melee right',
              'frontmelee': 'front melee', 'meleefront': 'front melee', 'front': 'front melee', 'fm': 'front melee',
              'rangedleft': 'ranged left', 'leftranged': 'ranged left', 'leftrange': 'ranged left', 'rangeleft': 'ranged left', 'rl': 'ranged left',
@@ -1032,7 +1821,7 @@ def write_setup(cfg):
     return '\n'.join(lines) + '\n'
 
 def note_change(up, dry, out_dir, sv_override=None):
-    """Read the note, merge it into fangs-setup.txt, and publish it (or write it to out_dir with --dry-run)."""
+    """Read the note, merge it into the team's setup.txt, and publish it (or write it to out_dir with --dry-run)."""
     path, note, err = find_fangs_note(sv_override)
     if err: print(f'[{stamp()}] {err}'); return
     found, warn = parse_fangs_note(note)
@@ -1057,6 +1846,7 @@ def note_change(up, dry, out_dir, sv_override=None):
         print(f'           {k}: {", ".join(a) or "—"}  ->  {", ".join(b) or "—"}')
     text = write_setup(new)
     if dry:
+        os.makedirs(os.path.dirname(os.path.join(out_dir, SETUP_PATH)), exist_ok=True)
         with open(os.path.join(out_dir, SETUP_PATH), 'w', encoding='utf-8') as f: f.write(text)
         print(f'[{stamp()}] Wrote {SETUP_PATH} in {out_dir}.'); return
     try:
@@ -1065,6 +1855,7 @@ def note_change(up, dry, out_dir, sv_override=None):
         print(f'[{stamp()}] Could not save {SETUP_PATH} to {up.where}: {e}'); return
     if up.live:
         here = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETUP_PATH)   # keep the repo copy the same
+        os.makedirs(os.path.dirname(here), exist_ok=True)
         with open(here, 'w', encoding='utf-8') as f: f.write(text)
         print(f'[{stamp()}] Saved {SETUP_PATH} to {up.where}; open pages show it within seconds. '
               'The copy in your repo folder is updated too: commit it in GitHub Desktop when convenient.')
@@ -1077,6 +1868,33 @@ def newest_log():
     return max(files, key=os.path.getmtime) if files else None
 
 def stamp(): return datetime.now().strftime('%H:%M:%S')
+
+def set_team(team):
+    """Point every data path at this team's folder."""
+    global NIGHT_DIR, INDEX_PATH, FANGS_DIR, FANGS_INDEX, SETUP_PATH, KITH_DIR, KITH_INDEX, ACT_DIR, ACT_INDEX
+    base = f'data/{team}/{TIER}'
+    NIGHT_DIR, FANGS_DIR = f'{base}/sszorak', f'{base}/twin-fangs'
+    INDEX_PATH, FANGS_INDEX, SETUP_PATH = f'{NIGHT_DIR}/nights.json', f'{FANGS_DIR}/nights.json', f'{FANGS_DIR}/setup.txt'
+    KITH_DIR = f'{base}/kithix'; KITH_INDEX = f'{KITH_DIR}/nights.json'   # Kith'ix is its own one-boss raid, kept with this season's bosses
+    ACT_DIR = f'{base}/activity'; ACT_INDEX = f'{ACT_DIR}/nights.json'   # every boss pull and trash fight, for the timelines
+    for b in FAIL_BOSSES: b['dir'] = f"{base}/{b['slug']}"; b['index'] = f"{b['dir']}/nights.json"   # the other bosses of the tier
+
+def pick_team():
+    """The team from --team, or asked in the Terminal window. Returns (id, name)."""
+    def find(s):
+        s = s.strip().lower()
+        return next((t for i, t in enumerate(TEAMS) if s in (t[0], str(i + 1))), None)
+    if '--team' in sys.argv:
+        got = find(sys.argv[sys.argv.index('--team') + 1] if sys.argv.index('--team') + 1 < len(sys.argv) else '')
+        if not got: sys.exit('--team takes ' + ', '.join(t[0] for t in TEAMS) + ' (or 1 to ' + str(len(TEAMS)) + ').')
+        return got
+    if not sys.stdin.isatty(): sys.exit('Which team? Add --team ' + ' / '.join(t[0] for t in TEAMS) + '.')
+    print('Which team is this raid for?')
+    for i, (_, name) in enumerate(TEAMS): print(f'  {i + 1}  {name}')
+    while True:
+        try: got = find(input(f'Type 1 to {len(TEAMS)} and press Return: '))
+        except EOFError: sys.exit('\nNo team chosen.')
+        if got: return got
 
 def main():
     dry = '--dry-run' in sys.argv           # write the night file and nights.json locally instead of uploading
@@ -1099,8 +1917,19 @@ def main():
         n = send_site(up, repo_dir, with_data=True)
         print(f'[{stamp()}] Sent {n} files. Open {SITE_URL} to check it.')
         return
+    if '--pages' in sys.argv:          # page files changed since the last send, and nothing else: raid data stays as the server has it
+        if not use_server: sys.exit('--pages sends page files to your server; leave out --dry-run and --github.')
+        up = connect_server()
+        n = send_site(up, repo_dir, with_data=False)
+        print(f'[{stamp()}] ' + (f'Sent {n} changed page file{"" if n == 1 else "s"}. Open {SITE_URL} to check it.' if n else
+                                 'No page files changed since the last send. Nothing to do.'))
+        return
+    team, team_name = pick_team()
+    set_team(team)
+    print(f'[{stamp()}] Team: {team_name}. Data goes to data/{team}/{TIER}/<boss>/.')
     up = None if dry else connect_server() if use_server else Uploader(get_token())
     if use_server:
+        up.keep_dir = repo_dir
         n = send_site(up, repo_dir, with_data=False)       # page changes since the last run go live now
         if n: print(f'[{stamp()}] Sent {n} changed page file{"" if n == 1 else "s"} to {up.where}.')
     if up and not up.live:
@@ -1116,13 +1945,17 @@ def main():
 
     if '--notechange' in sys.argv:
         note_change(up, dry, out_dir, sv_override); return
-    path, fh, parser, fangs, seen_finished, pending, last_upload = None, None, None, None, None, False, 0.0
+    path, fh, parser, fangs, kith, act, seen_finished, pending, last_upload = None, None, None, None, None, None, None, False, 0.0
+    fails = []      # one FailParser per boss in FAIL_BOSSES
 
     dec, pos = None, 0
-    print(f'[{stamp()}] Watching {LOG_DIR} for Sszorak and Twin Fangs pulls. Press Control-C to stop.')
+    print(f'[{stamp()}] Watching {LOG_DIR} for pulls of every supported boss. Press Control-C to stop.')
     gap = 0 if (up and up.live) else MIN_UPLOAD_GAP      # your server takes every pull the moment it ends
     if not (up and up.live): print(f'[{stamp()}] Type "push" and press Return to upload right now instead of waiting.')
     print(f'[{stamp()}] Type "notechange" and press Return to copy kicks and soak groups from the raid note into {SETUP_PATH}.')
+    # only logs WoW writes to while the uploader runs: an older log (a past raid night) is never uploaded, so starting the
+    # uploader before WoW opens tonight's log can't send last night's pulls (to this team or any other). --log still reads any log.
+    started, waiting_on = time.time() - 5, None
 
 
     def send():
@@ -1141,6 +1974,22 @@ def main():
             last = fdata['pulls'][-1]
             whats.append(f"Twin Fangs pull {last['n']} " + ('kill' if last['kill'] else 'in progress' if last['live'] else 'wipe'))
             f = f'{FANGS_DIR}/{stem}.json'; parts.append((f, fdata, FANGS_INDEX, night_entry(fdata, f)))
+        kdata = kith.build(log_name)
+        if kdata['pulls']:
+            last = kdata['pulls'][-1]
+            whats.append(f"Kith'ix pull {last['n']} " + ('kill' if last['kill'] else 'in progress' if last['live'] else
+                         f"wipe at {last['hp'] * 100:.1f}%" if last['hp'] is not None else 'wipe'))
+            f = f'{KITH_DIR}/{stem}.json'; parts.append((f, kdata, KITH_INDEX, night_entry(kdata, f)))
+        for fp in fails:
+            d = fp.build(log_name)
+            if not d['pulls']: continue
+            last = d['pulls'][-1]; b = fp.cfg
+            whats.append(f"{b['name']} pull {last['n']} " + ('kill' if last['kill'] else 'in progress' if last['live'] else 'wipe'))
+            f = f"{b['dir']}/{stem}.json"; parts.append((f, d, b['index'], night_entry(d, f)))
+        adata = act.build(log_name)
+        if adata['pulls'] or adata['trash']:      # every boss pull and trash fight, for the timelines
+            f = f'{ACT_DIR}/{stem}.json'; parts.append((f, adata, ACT_INDEX, activity_entry(adata, f)))
+            if not whats: whats.append(f"{adata['pulls'][-1][3].strip(chr(34))} pull {len(adata['pulls'])}" if adata['pulls'] else 'trash')
         if not parts: return True
         what = ', '.join(whats)
         if dry:
@@ -1175,9 +2024,16 @@ def main():
                 elif cmd == 'push' and not fh:
                     print(f'[{stamp()}] Nothing to upload yet: no combat log found.'); cmd = ''
             newest = path_override or newest_log()
+            if newest and newest != path and not path_override and os.path.getmtime(newest) < started:
+                if waiting_on != newest:
+                    waiting_on = newest
+                    print(f'[{stamp()}] Waiting for WoW to write tonight\'s combat log. The newest one, {os.path.basename(newest)}, '
+                          'is from before the uploader started, so it won\'t be uploaded.')
+                newest = None
             if newest and newest != path:
                 if fh: fh.close()
-                path, fh, parser, fangs = newest, open(newest, 'rb'), Parser(), FangsParser()
+                path, fh, parser, fangs, kith, act = newest, open(newest, 'rb'), Parser(), FangsParser(), KithixParser(), ActivityParser()
+                fails = [FailParser(b) for b in FAIL_BOSSES]
                 dec, pos = codecs.getincrementaldecoder('utf-8')(errors='replace'), 0
                 seen_finished, pending = None, False
                 print(f'[{stamp()}] Reading {os.path.basename(path)} ({fmt_size(os.path.getsize(path))})')
@@ -1189,16 +2045,20 @@ def main():
                     if not chunk: break
                     pos += len(chunk)
                     text = dec.decode(chunk)
-                    parser.feed(text); fangs.feed(text)
+                    parser.feed(text); fangs.feed(text); kith.feed(text); act.feed(text)
+                    for fp in fails: fp.feed(text)
                     if show: bar(pos, total, f'Reading log  {fmt_size(pos)} of {fmt_size(total)}')
                 if show:
                     n = sum(1 for p in parser.pulls if not p['ended'] or (p['dur'] or 0) >= 2)   # same pulls the site shows
                     nf = len(fangs.pulls) + (1 if fangs.cur and fangs.cur['twin'] else 0)
-                    print(f'\n[{stamp()}] Found {n} Sszorak pull{"" if n == 1 else "s"} and {nf} Twin Fangs pull{"" if nf == 1 else "s"} so far')
+                    nk = len(kith.pulls) + (1 if kith.cur else 0)
+                    found = [(n, 'Sszorak'), (nf, 'Twin Fangs'), (nk, "Kith'ix")] + [(len(fp.pulls) + (1 if fp.cur else 0), fp.cfg['name']) for fp in fails]
+                    found = [f'{k} {s} pull{"" if k == 1 else "s"}' for k, s in found if k]
+                    print(f'\n[{stamp()}] Found ' + (', '.join(found) if found else 'no boss pulls') + ' so far')
                 # a pull ended (or first look at a log with Sszorak pulls): queue an upload
                 wait = gap - (time.time() - last_upload)
                 # only a finished pull queues an upload; a pull that just started doesn't use up the 6-minute slot
-                done = (parser.finished, fangs.finished)
+                done = (parser.finished, fangs.finished, kith.finished, act.finished) + tuple(fp.finished for fp in fails)   # any boss pull ending updates the timelines
                 if sum(done) > 0 and done != seen_finished:
                     seen_finished, pending = done, True
                     if not (dry or once) and wait > 0:
@@ -1207,8 +2067,8 @@ def main():
                 # typed in this window: "push" uploads now, skipping the 6-minute wait
                 push = False
                 if cmd == 'push':
-                    if parser.pulls or fangs.has_data(): push = True
-                    else: print(f'[{stamp()}] Nothing to upload yet: no Sszorak or Twin Fangs pulls in this log.')
+                    if parser.pulls or fangs.has_data() or kith.has_data() or act.has_data() or any(fp.has_data() for fp in fails): push = True
+                    else: print(f'[{stamp()}] Nothing to upload yet: no boss pulls in this log.')
                 if push or (pending and (dry or once or wait <= 0)):
                     if push: print(f'[{stamp()}] Uploading now (push).')
                     if send():

@@ -1,0 +1,34 @@
+{
+ "nights": [
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-101526_202041.json",
+   "log": "WoWCombatLog-101526_202041.txt",
+   "date": "10/15/2026",
+   "updated": "2026-10-31T22:53:31+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-102126_201753.json",
+   "log": "WoWCombatLog-102126_201753.txt",
+   "date": "10/21/2026",
+   "updated": "2026-10-31T22:53:43+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-102226_201939.json",
+   "log": "WoWCombatLog-102226_201939.txt",
+   "date": "10/22/2026",
+   "updated": "2026-10-31T22:53:58+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-102826_201858.json",
+   "log": "WoWCombatLog-102826_201858.txt",
+   "date": "10/28/2026",
+   "updated": "2026-10-31T22:54:13+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-102926_203851.json",
+   "log": "WoWCombatLog-102926_203851.txt",
+   "date": "10/29/2026",
+   "updated": "2026-10-31T22:54:28+00:00"
+  }
+ ]
+}

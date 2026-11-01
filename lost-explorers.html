@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Lost Explorers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="boss.css">
+</head>
+<body>
+<div class="wrap" id="wrap"></div>
+<script src="shared.js"></script>
+<script>
+// The page is drawn by boss.js from this config (see the top of boss.js for what each part means).
+const MIDDLE_C = [698.7, 469.6];   // the room's middle
+const contacts = (p, ability, gap = 2) => { const last = {}, out = [];
+  hitsOf(p, ability).forEach(h => { if (last[h[1]] == null || h[0] - last[h[1]] > gap) out.push(h); last[h[1]] = h[0]; }); return out; };
+const SHORT = {'First Mate Nama': 'Nama', 'Scrollsage Iku': 'Iku', 'Trader Gebbo': 'Gebbo'};
+// a fish fed to a controlled explorer shows as Disgusting Fish on that explorer; Final Ascension = no fish in time
+const fish = p => npcAuras(p, 'Disgusting Fish').filter(a => SHORT[a[1]]).map(a => ({t: a[3], to: SHORT[a[1]]}));
+const ascended = p => dedupe(pulsesOf(p, 'Final Ascension'), 30).map(x => x[0]);
+// United Defense: on all three at once, only while they're within 30 yd of each other
+const stacked = p => dedupe(npcAuras(p, 'United Defense'), 1.5, a => a[3]).map(a => {
+  const off = Math.max(...npcAuras(p, 'United Defense').filter(b => Math.abs(b[3] - a[3]) < 1.5).map(b => b[4] != null ? b[4] : p.dur));
+  return {t: a[3], s: off - a[3], pos: ['Nama', 'Iku', 'Gebbo'].map(b => [b, bossAt(p, b, a[3])])}; });
+// Explosive Surprise: the bomb player's spot, then the Blast Wave everyone has to jump over on a mushroom
+const bombs = p => auras(p, 'Explosive Surprise').map(a => ({n: a[0], t: a[1], pos: a[6] || a[5]})).map(b => Object.assign(b, {d: dist(b.pos, MIDDLE_C)}));
+const waves = p => dedupe(hitsOf(p, 'Blast Wave'), 6).map(h0 => ({t: h0[0], hit: [...new Set(hitsOf(p, 'Blast Wave').filter(h => h[0] >= h0[0] && h[0] < h0[0] + 6).map(h => h[1]))]}));
+// Frostfire Volley: debuffs left on (60 s; clear it in the other element's patch before the next set), patches stood in for nothing
+const volleys = p => castsOf(p, 'Frostfire Volley');
+const leftOn = p => [...auras(p, 'Burning Flames'), ...auras(p, 'Piercing Frost')].filter(a => ((a[2] != null ? a[2] : p.dur) - a[1]) > 20);
+const patchStood = p => [...contacts(p, 'Fire Patch').filter(h => !hadAura(p, h[1], 'Piercing Frost', h[0], 0.5)),
+  ...contacts(p, 'Frost Patch').filter(h => !hadAura(p, h[1], 'Burning Flames', h[0], 0.5))];
+const explosions = p => pulsesOf(p, 'Elemental Explosion').map(x => ({t: x[0], by: [...new Set(hitsOf(p, 'Frostfire Volley').filter(h => Math.abs(h[0] - x[0]) < 1 &&
+  (hadAura(p, h[1], 'Burning Flames', h[0] - 0.2, 0) || hadAura(p, h[1], 'Piercing Frost', h[0] - 0.2, 0))).map(h => h[1]))]}));
+// Mighty Thud: three leaps a few seconds apart; Aftershock still hitting someone 3 s after the last leap = they stayed in a crater
+const thuds = p => dedupe(pulsesOf(p, '#1300237'), 8).map(x0 => { const leaps = pulsesOf(p, '#1300237').filter(x => x[0] >= x0[0] && x[0] < x0[0] + 8), last = leaps[leaps.length - 1][0];
+  return {t: x0[0], leaps: leaps.map(x => x[1].length), stayed: [...new Set(hitsOf(p, 'Aftershock').filter(h => h[0] > last + 3 && h[0] < last + 30).map(h => h[1]))]}; });
+const SHARDS = 7;   // one Shredding Shards cast puts 7 stacks on the tank: more means a second cast without a swap
+const CFG = {
+  slug: 'lost-explorers', name: 'The Lost Explorers', enc: ['3497'],
+  map: {src: 'img/maps/lost-explorers.webp', cal: {cx: 698.7, cy: 469.6, ppy: 3.033, rot: 0, center: [299.5, 299.5]}},
+  modules: [
+    {id: 'fish', title: "Mor'zahi and the fish",
+     one: p => ({head: ['Time', ['What', 'l'], ['Details', 'l']], rows: ascended(p).map(t => [T(t), B('Final Ascension'), X(`no fish before Mor'zahi's energy was full (${fish(p).length} fed before it)`, 'det')])}),
+     all: list => ({head: [['Pulls', 'l'], 'Fish fed', 'Final Ascension'], rows: [[`<td class="l">${list.length}</td>`, V(list.reduce((a, p) => a + fish(p).length, 0)), N(list.reduce((a, p) => a + ascended(p).length, 0))]]}),
+     note: "A Disgusting Fish from Gebbo's crates fed to the controlled explorer at 90-95 energy resets Mor'zahi and picks the next ultimate. Each explorer takes one fish; the 4th time he fills up is the enrage."},
+
+    {id: 'defense', title: 'United Defense', diffs: '15,16',
+     one: p => ({head: ['Time', 'Seconds'], rows: stacked(p).map(x => [T(x.t), N(Math.max(1, Math.round(x.s)))])}),
+     all: list => ({head: [['Pulls', 'l'], 'Times', 'Seconds'], rows: [[`<td class="l">${list.filter(p => stacked(p).length).length} of ${list.length}</td>`,
+       N(list.reduce((a, p) => a + stacked(p).length, 0)), N(Math.round(list.reduce((a, p) => a + stacked(p).reduce((b, x) => b + x.s, 0), 0)))]]}),
+     note: 'All three explorers within 30 yd of each other take 99% less damage. Keep two together for cleave and the third apart.',
+     overlay: {label: 'United Defense', diffs: '15,16', get: p => stacked(p).flatMap(x => x.pos.filter(b => b[1]).map(([b, q]) => ({pos: q, t: x.t,
+       color: b === 'Nama' ? '#5cc28a' : b === 'Iku' ? '#3fc7eb' : '#e5b04a', tip: `<b>${b}</b><br>all three together for ${Math.round(x.s)} s`}))),
+       key: () => `<span>${keyDot('#5cc28a')}Nama</span><span>${keyDot('#3fc7eb')}Iku</span><span>${keyDot('#e5b04a')}Gebbo</span><span>when United Defense went up</span>`}},
+
+    {id: 'crate', title: 'Crates and Splinters',
+     one: p => perPlayer([p], [{h: 'Top Splinters', cls: '', get: q => { const m = {}; auras(q, 'Splinters').forEach(a => { m[a[0]] = Math.max(m[a[0]] || 0, a[3]); }); return Object.entries(m).filter(([, v]) => v >= 3).map(([n, v]) => ({n, c: v})); }},
+       {h: 'Under a landing crate', get: q => contacts(q, 'Throw Junk').map(h => ({n: h[1], t: h[0]}))}]),
+     all: list => perPlayer(list, [{h: 'Broke crates up to 3+ Splinters', get: q => q.diff === 16 ? [] : auras(q, 'Splinters').filter(a => a[3] >= 3).map(a => ({n: a[0], t: a[1]}))},
+       {h: 'Under a landing crate', get: q => contacts(q, 'Throw Junk').map(h => ({n: h[1], t: h[0]}))}]),
+     foot: list => { const r = list.reduce((a, p) => a + pulsesOf(p, 'Relic Rupture').length, 0); return r ? `<b style="color:var(--crit)">${r} crate${r === 1 ? '' : 's'} left 25 s: Relic Rupture on the raid.</b>` : ''; },
+     note: 'Share crate breaking so nobody stacks the Splinters bleed (on Mythic every crate bleeds the whole raid: break them one at a time). A crate left 25 s ruptures on the raid.'},
+
+    {id: 'bomb', title: 'Explosive Surprise (Gebbo)',
+     one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [...bombs(p).map(b => ({t: b.t, r: [T(b.t), `<td class="what">Bomb on ${esc(b.n)}</td>`, X(b.d == null ? '' : b.d < 45 ? `dropped near the middle (${Math.round(b.d)} yd)` : `at the edge (${Math.round(b.d)} yd)`, b.d != null && b.d < 45 ? 'bad' : 'det')]})),
+       ...waves(p).map(w => ({t: w.t, r: [T(w.t), B('Hit by Blast Wave'), PS(w.hit)]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
+     all: list => perPlayer(list, [{h: 'Hit by Blast Wave', get: p => waves(p).flatMap(w => w.hit.map(n => ({n, t: w.t})))},
+       {h: 'Fungal Burst', get: p => contacts(p, 'Fungal Burst').map(h => ({n: h[1], t: h[0]}))},
+       {h: 'Dropped the bomb near the middle', get: p => bombs(p).filter(b => b.d != null && b.d < 45).map(b => ({n: b.n, t: b.t}))}]),
+     note: 'Bomb players drop it at the edge, away from the mushrooms. Jump over the Blast Wave on a Bouncy Mushroom as it reaches you (not early), then step away before the mushroom bursts.',
+     overlay: {label: 'Blast Wave', get: p => [...bombs(p).filter(b => b.pos).map(b => ({pos: b.pos, t: b.t, color: '#e5b04a', tip: `<b>${esc(b.n)}</b>'s bomb`})),
+       ...hitsOf(p, 'Blast Wave').map(h => ({pos: h[4], n: h[1], t: h[0], mark: 'cross', color: '#ff5a4a', tip: `<b style="color:${color(h[1])}">${esc(h[1])}</b> hit by Blast Wave`}))],
+       key: () => `<span>${keyDot('#e5b04a')}Bomb</span><span>${keyCross('#ff5a4a')}Hit by Blast Wave</span>`}},
+
+    {id: 'frost', title: 'Frostfire Volley (Iku)',
+     one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [
+       ...explosions(p).map(x => ({t: x.t, r: [T(x.t), B('Elemental Explosion'), PS(x.by)]})),
+       ...leftOn(p).map(a => ({t: a[1], r: [T(a[1]), B('Debuff left on'), X(`${pname(a[0])} kept it ${Math.round((a[2] != null ? a[2] : p.dur) - a[1])} s`)]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
+     all: list => perPlayer(list, [{h: 'Set off an Elemental Explosion', get: p => explosions(p).flatMap(x => x.by.map(n => ({n, t: x.t})))},
+       {h: 'Kept the debuff 20+ s', get: p => leftOn(p).map(a => ({n: a[0], t: a[1]}))},
+       {h: 'Stood in a patch', get: p => patchStood(p).map(h => ({n: h[1], t: h[0]}))}]),
+     note: 'Burning Flames is cleared in a Frost Patch and Piercing Frost in a Fire Patch, before the next set. A missile hitting someone with the other element sets off an Elemental Explosion on the raid. Patches go to the edge.',
+     overlay: {label: 'Frostfire patches', get: p => hitsOf(p, 'Frostfire Volley').filter(h => h[4]).map(h => ({pos: h[4], n: h[1], t: h[0], tip: `<b style="color:${color(h[1])}">${esc(h[1])}</b>'s missile landed here`})),
+       key: () => `<span>${KEY_DOT}Where a missile (and its patch) landed</span>`}},
+
+    {id: 'thud', title: 'Mighty Thud (Nama)',
+     one: p => ({head: ['Time', 'Soakers per leap', ['Stayed in a crater', 'l']], rows: thuds(p).filter(x => x.stayed.length).map(x => [T(x.t), V(x.leaps.join(' / ')), PS(x.stayed)])}),
+     all: list => perPlayer(list, [{h: 'Stayed in a crater', get: p => thuds(p).flatMap(x => x.stayed.map(n => ({n, t: x.t})))}]),
+     note: 'Each leap is split between everyone within 6 yd: one soak group per mark, circles apart. Knocked from one soak into the next is fine; still in a crater 3 s after the last leap isn\'t.'},
+
+    {id: 'shell', title: 'Shell Spin',
+     one: p => perPlayer([p], [{h: 'Stunned', get: q => auras(q, 'Shell Spin').filter(a => !isTankIn(q, a[0])).map(a => ({n: a[0], t: a[1]}))}]),
+     all: list => perPlayer(list, [{h: 'Stunned', get: q => auras(q, 'Shell Spin').filter(a => !isTankIn(q, a[0])).map(a => ({n: a[0], t: a[1]}))}]),
+     note: "Melee bait Nama's shells toward the edge, then step out of their path. Tanks don't count."},
+
+    {id: 'kick', title: 'Icebound Flames', one: p => kickOne(p, ['Icebound Flames']), all: list => kickAll(list, ['Icebound Flames']),
+     foot: list => kickFoot(list, ['Icebound Flames']), note: "Kick every one of Iku's casts (2-3 person rotation)."},
+
+    {id: 'tank', title: 'Shredding Shards',
+     one: p => perPlayer([p], [{h: 'Took a second cast', get: q => auras(q, 'Shredding Shards').filter(a => a[3] > SHARDS).map(a => ({n: a[0], t: a[1]}))}], ['Tank', 'l']),
+     all: list => perPlayer(list, [{h: 'Took a second cast', get: q => auras(q, 'Shredding Shards').filter(a => a[3] > SHARDS).map(a => ({n: a[0], t: a[1]}))}], ['Tank', 'l']),
+     note: `One cast puts ${SHARDS} shards on the tank, each raising the damage of the next; swap after every cast.`},
+  ],
+  avoid: {names: ['Blast Wave', 'Evil Eyes', 'Fungal Burst', 'Spreading Flames', 'Throw Junk', 'Aftershock', 'Fire Patch', 'Frost Patch', 'Deadly Venom'],
+    short: {'Blast Wave': 'Blast', 'Shell Spin': 'Shell', 'Evil Eyes': 'Eyes', 'Fungal Burst': 'Fungal', 'Spreading Flames': 'Flames', 'Throw Junk': 'Junk', 'Concussive Blast': 'Bomb',
+      'Aftershock': 'Crater', 'Fire Patch': 'Fire', 'Frost Patch': 'Frost', 'Deadly Venom': 'Venom'},
+    skip: (h, p) => (h[2] === 'Shell Spin' && isTankIn(p, h[1])) || (h[2] === 'Fire Patch' && hadAura(p, h[1], 'Piercing Frost', h[0], 0.5)) || (h[2] === 'Frost Patch' && hadAura(p, h[1], 'Burning Flames', h[0], 0.5)),
+    note: "Damage taken from each (hover a number for how many hits; shields count). A patch doesn't count when you stepped in to clear the other element."},
+  abilities: {'Final Ascension': 1292780, 'Disgusting Fish': 1313303, "Mor'zahi's Command": 1297022, 'United Defense': 1297646, 'Relic Rupture': 1310027,
+    'Splinters': 1308853, 'Elemental Explosion': 1295952, 'Burning Flames': 1295928, 'Piercing Frost': 1295954, 'Icebound Flames': 1286921, 'Shell Spin': 1296061,
+    'Blast Wave': 1305844, 'Bouncy Mushroom': 1292104, 'Explosive Surprise': 1297625, 'Evil Eyes': 1292388, 'Fungal Burst': 1305618, 'Spreading Flames': 1297650,
+    'Throw Junk': 1291933, 'Concussive Blast': 1296247, 'Fire Patch': 1297649, 'Frost Patch': 1297648, 'Frostfire Volley': 1295893, 'Mighty Thud': 1296092,
+    'Aftershock': 1310500, 'Shredding Shards': 1295854, 'Deadly Venom': 1297338},
+  how: "Built from the Encounter Journal, Method's Heroic and Mythic guides, Icy Veins and expcarry, and checked against Taylor's logs (Sep-Oct 2026: 20 Mythic pulls, Heroic too); not yet checked on a live raid night. A fish shows as Disgusting Fish on the explorer it was fed to. The room image is from raidstrats.gg, lined up on the Creepy Statues in the four corners; the room is square, so which side is north is assumed (north up).",
+};
+</script>
+<script src="boss.js"></script>
+</body>
+</html>
