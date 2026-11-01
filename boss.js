@@ -137,7 +137,6 @@ function buildPage(){
     <span class="sub" id="diffNote"></span>
   </div>
   <div class="panel">
-    <div class="ph"><h2>Raid nights</h2><span class="sub"><span id="tlHours"></span></span></div>
     <div class="tl" id="tl"></div>
     <div class="tlrow sc"><span></span><div class="scale" id="scale"></div><span></span></div>
     <div class="tlkey" id="tlKey"></div>
@@ -176,7 +175,7 @@ function buildPage(){
   </div>`;
 }
 buildPage();
-(() => { let saved = null; try { saved = localStorage.getItem('vir-theme'); } catch (e) {} setTheme(saved || 'dark', false); })();
+(() => { let saved = null; try { if (!matchMedia('(max-width:600px)').matches) saved = localStorage.getItem('vir-theme'); } catch (e) {} setTheme(saved || 'dark', false); })();
 $('thLight').onclick = () => setTheme('light', true); $('thDark').onclick = () => setTheme('dark', true);
 
 // ---- view state ----

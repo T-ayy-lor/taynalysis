@@ -229,3 +229,6 @@ td.det{white-space:normal;text-align:left;width:auto;min-width:9em;color:var(--m
 td.det .pn{font-weight:600}
 @media (max-width:400px){.mpanel .ovseg button{padding:6px 8px}}   /* the map's overlay switch fits a 360 px phone */
 @media (max-width:400px){table.st.vert{font-size:.6rem} table.st.vert th:not(:first-child),table.st.vert td:not(:first-child){padding-left:1px}}   /* many avoidable columns on a phone */
+
+/* phones: no theme switch (it wrapped badly); they always get the default dark theme */
+@media (max-width:600px){#themeSeg{display:none}}

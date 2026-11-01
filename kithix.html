@@ -229,6 +229,8 @@ table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-
 #mapsvg svg.dense g[data-tip] > circle:last-child{r:3px;stroke-width:.6px;opacity:.75}
 #mapsvg svg.dense g[data-tip] > path{opacity:.8}
 @media (max-width:400px){.mpanel .ovseg button{padding:6px 8px}}   /* the map's overlay switch fits a 360 px phone */
+/* phones: no theme switch (it wrapped badly); they always get the default dark theme */
+@media (max-width:600px){#themeSeg{display:none}}
 </style>
 </head>
 <body>
@@ -255,7 +257,6 @@ table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-
   </div>
 
   <div class="panel">
-    <div class="ph"><h2>Raid nights</h2><span class="sub"><span id="tlHours"></span></span></div>
     <div class="tl" id="tl"></div>
     <div class="tlrow sc"><span></span><div class="scale" id="scale"></div><span></span></div>
     <div class="tlkey" id="tlKey"></div>
@@ -371,7 +372,7 @@ function setTheme(t, remember){
   $('thLight').setAttribute('aria-pressed', String(t === 'light')); $('thDark').setAttribute('aria-pressed', String(t === 'dark'));
   if (remember){ try { localStorage.setItem('vir-theme', t); } catch (e) {} }
 }
-(() => { let saved = null; try { saved = localStorage.getItem('vir-theme'); } catch (e) {} setTheme(saved || 'dark', false); })();
+(() => { let saved = null; try { if (!matchMedia('(max-width:600px)').matches) saved = localStorage.getItem('vir-theme'); } catch (e) {} setTheme(saved || 'dark', false); })();
 $('thLight').onclick = () => setTheme('light', true); $('thDark').onclick = () => setTheme('dark', true);
 
 // ---- view state ----

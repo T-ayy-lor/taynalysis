@@ -282,6 +282,8 @@ details.pick summary span{font-weight:400}
 .grid2,.lower,.bottom,.mods{align-items:stretch}
 .bottom .stack > .panel:last-child{flex:1 1 auto}
 .mpanel canvas{max-width:100%}
+/* phones: no theme switch (it wrapped badly); they always get the default dark theme */
+@media (max-width:600px){#themeSeg{display:none}}
 </style>
 </head>
 <body>
@@ -306,7 +308,6 @@ details.pick summary span{font-weight:400}
     </div>
   </div>
   <div class="panel">
-    <div class="tlph"><h2>Raid nights</h2><span class="sub"><span id="tlHours"></span></span></div>
     <div class="tl" id="tl"></div>
     <div class="tlrow sc"><span></span><div class="scale" id="scale"></div><span></span></div>
     <div class="tlkey" id="tlKey"></div>
@@ -511,9 +512,11 @@ const cv = $('map'), ctx = cv.getContext('2d');
 const L = 1120; // logical drawing size; the backing store is sized to the on-screen canvas
 // U scales marker sizes, label fonts and line widths (not positions or distances) so they keep the same on-screen size
 // however wide the map is drawn: 1 at about 900 px wide, up to 3 on a small phone screen
-let U = 1;
+let U = 1, UL = 1;   // UL: the same for player names, smaller on phones so more of them fit
 function fitCanvas(){ const r=cv.getBoundingClientRect(); const px=Math.max(300, Math.round(r.width*(window.devicePixelRatio||1))); if(cv.width!==px){ cv.width=px; cv.height=px; } ctx.setTransform(px/L,0,0,px/L,0,0);
-  U = r.width > 0 ? Math.max(1, Math.min(3, 0.8 * L / r.width)) : 1; }
+  U = r.width > 0 ? Math.max(1, Math.min(3, 0.8 * L / r.width)) : 1;
+  // names: about 10 px tall on a phone-size map (400 px or less), growing back to the old 14 px at 760 px and wider
+  const f = 0.55 + 0.25 * Math.max(0, Math.min(1, (r.width - 400) / 360)); UL = r.width > 0 ? Math.max(1, Math.min(U, f * L / r.width)) : 1; }
 
 // ---- flatten casts
 // Drift resets: a player's positions only count from this pull on (used when their assigned spot changes).
@@ -735,25 +738,33 @@ function drawAverages(model, sel, mink, acc){
   placeLabels(labels, mink);
 }
 // Names go in a free spot around their dot (above, below, right, left, then the corners), clear of other names, dots and
-// rings. A name that fits nowhere is left off (hover the dot for it); the selected player's name always shows.
+// rings; further out with a thin line to its dot when there's no room beside it. A name that fits nowhere is left off
+// (hover the dot for it); the selected player's name always shows.
 function placeLabels(labels, mink){
-  const placed = [], dots = HIT.map(h => ({x: h.x, y: h.y, r: 15 * U}));
+  // the N arrow (top right) and the 10 yd scale bar (bottom left) count as taken
+  const placed = [{x0: L - 80 * U, x1: L, y0: 0, y1: 80 * U}, {x0: 0, x1: 24 * U + 10 * VIEW.s + 70 * U, y0: L - 46 * U, y1: L}],
+    dots = HIT.map(h => ({x: h.x, y: h.y, r: 15 * U}));
   const clash = b => placed.some(p => b.x0 < p.x1 && b.x1 > p.x0 && b.y0 < p.y1 && b.y1 > p.y0) ||
     dots.some(d => !(d.x === b.ox && d.y === b.oy) && d.x + d.r > b.x0 && d.x - d.r < b.x1 && d.y + d.r > b.y0 && d.y - d.r < b.y1) ||
     b.x0 < 0 || b.y0 < 0 || b.x1 > L || b.y1 > L;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   labels.sort((a, b) => b.isSel - a.isSel).forEach(l => {
-    ctx.font = `600 ${(l.isSel ? 21 : 18) * U}px ${css('--f-body') || 'sans-serif'}`;
-    const w = ctx.measureText(l.n).width + 4 * U, h = (l.isSel ? 22 : 19) * U, g = l.r + 3 * U;
-    const spots = [[0, -(g + h / 2)], [0, g + h / 2], [g + w / 2, 0], [-(g + w / 2), 0],
+    ctx.font = `600 ${(l.isSel ? 21 : 18) * UL}px ${css('--f-body') || 'sans-serif'}`;
+    const w = ctx.measureText(l.n).width + 4 * UL, h = (l.isSel ? 22 : 19) * UL;
+    // next to the dot first; then further out (3 more rings), joined to the dot by a thin line
+    const ring = g => [[0, -(g + h / 2)], [0, g + h / 2], [g + w / 2, 0], [-(g + w / 2), 0],
                    [g * .7 + w / 2, -(g * .7 + h / 2)], [-(g * .7 + w / 2), -(g * .7 + h / 2)], [g * .7 + w / 2, g * .7 + h / 2], [-(g * .7 + w / 2), g * .7 + h / 2]];
+    const g0 = l.r + 3 * U, spots = [0, 1, 2, 3].flatMap(k => ring(g0 + k * 18 * U));
     let pick = null;
-    for (const [dx, dy] of spots){ const cx = l.x + dx, cy = l.y + dy, b = {x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2, ox: l.x, oy: l.y};
-      if (!clash(b)){ pick = {cx, cy, b}; break; } }
+    spots.some(([dx, dy], i) => { const cx = l.x + dx, cy = l.y + dy, b = {x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2, ox: l.x, oy: l.y};
+      if (!clash(b)){ pick = {cx, cy, b, far: i >= 8}; return true; } });
     if (!pick && l.isSel){ const cx = l.x, cy = l.y - g - h / 2; pick = {cx, cy, b: {x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2}}; }
     if (!pick) return;
     placed.push(pick.b);
-    ctx.lineWidth = 5 * U; ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.strokeText(l.n, pick.cx, pick.cy);
+    if (pick.far){ const px = Math.max(pick.b.x0, Math.min(pick.b.x1, l.x)), py = Math.max(pick.b.y0, Math.min(pick.b.y1, l.y)), d = Math.hypot(px - l.x, py - l.y);
+      if (d > l.r){ const sx = l.x + (px - l.x) / d * (l.r + 2 * U), sy = l.y + (py - l.y) / d * (l.r + 2 * U);
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.lineWidth = 3.5 * U; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.stroke(); ctx.lineWidth = 1.5 * U; ctx.strokeStyle = mink; ctx.stroke(); } }
+    ctx.lineWidth = 5 * UL; ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.strokeText(l.n, pick.cx, pick.cy);
     ctx.fillStyle = mink; ctx.fillText(l.n, pick.cx, pick.cy);
   });
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -1017,7 +1028,7 @@ function setTheme(t, remember){
   $('thLight').setAttribute('aria-pressed', String(t === 'light')); $('thDark').setAttribute('aria-pressed', String(t === 'dark'));
   if (remember){ try { localStorage.setItem('vir-theme', t); } catch (e) {} }
 }
-(() => { let saved = null; try { saved = localStorage.getItem('vir-theme'); } catch (e) {}
+(() => { let saved = null; try { if (!matchMedia('(max-width:600px)').matches) saved = localStorage.getItem('vir-theme'); } catch (e) {}
   setTheme(saved || 'dark', false); })();   // dark by default
 $('thLight').onclick = () => setTheme('light', true);
 $('thDark').onclick = () => setTheme('dark', true);

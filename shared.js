@@ -149,7 +149,7 @@ async function checkActivity(){   // true when something new arrived
   return changed;
 }
 
-// Draws #tl (one row per night), #scale and #tlHours. nights: [{key, date, cur, logs: [log names],
+// Draws #tl (one row per night), #scale and #tlHours (if the page has it). nights: [{key, date, cur, logs: [log names],
 // pulls: [{key, date, clock, tz, dur, kill, diff, title}]}] oldest first; o: {enc: this boss's encounter ids, name, diff, sel: selected pull key}.
 // Each night spans the team's raid hours; trash and other bosses come from ACT.
 function drawTimeline(nights, o){
@@ -178,7 +178,8 @@ function drawTimeline(nights, o){
   const zone = (new Intl.DateTimeFormat([], {timeZoneName: 'short'}).formatToParts(new Date(ref)).find(x => x.type === 'timeZoneName') || {}).value || '';
   const key = document.getElementById('tlKey');
   if (key) key.innerHTML = '<span><i></i>This boss</span><span><i class="k"></i>Kill</span><span><i class="ob"></i>Other bosses</span><span><i class="tr"></i>Trash</span>';
-  document.getElementById('tlHours').textContent = `${tlClock(ref)}${ap0 !== ap1 ? ' ' + ap0 : ''}–${tlClock(ref + span)}${ap1 ? ' ' + ap1 : ''} your time${zone ? ` (${zone})` : ''}`;
+  const hours = document.getElementById('tlHours');   // pages dropped the hours line (2026-10-31); kept for any page that has it
+  if (hours) hours.textContent = `${tlClock(ref)}${ap0 !== ap1 ? ' ' + ap0 : ''}–${tlClock(ref + span)}${ap1 ? ' ' + ap1 : ''} your time${zone ? ` (${zone})` : ''}`;
 }
 
 // ---- the boss picker in each boss page's title: every boss with a page, this one selected ----
