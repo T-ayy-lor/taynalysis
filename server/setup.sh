@@ -67,7 +67,7 @@ if [ ! -s "$CONF/upload-token" ]; then
   python3 -c 'import secrets; print(secrets.token_hex(32))' > "$CONF/upload-token"
   NEW_TOKEN=1
 fi
-# editor key: lets a boss page save group picks (Twin Fangs feast groups and kick order) and nothing else
+# editor key: lets a boss page save group picks (Twin Fangs feast groups and kick order) and flag pulls, nothing else
 if [ ! -s "$CONF/editor-key" ]; then
   python3 -c 'import secrets; print(secrets.token_urlsafe(18))' > "$CONF/editor-key"
 fi
@@ -148,7 +148,7 @@ echo "   $(cat "$CONF/upload-token")"
 echo
 echo " The uploader on your Mac asks for it once and saves it."
 echo
-echo " Editor key (only saves group picks on the boss pages; the page asks for it once):"
+echo " Editor key (only saves group picks and pull flags on the boss pages; the page asks for it once):"
 echo
 echo "   $(cat "$CONF/editor-key")"
 echo "================================================================"

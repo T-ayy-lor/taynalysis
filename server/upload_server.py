@@ -5,11 +5,15 @@ straight from the site folder.
 
   PUT /api/files/<path>   save one site file (needs the upload token)     -> {"ok": true, "path": ..., "bytes": n}
   PUT /api/groups/<team>/<tier>/<boss>/<set>   save group picks made on a boss page (needs the editor key, which can do
-                          nothing else): body {"groups": {"Player": value, ...}, "from": "now" | "all"}. "now" adds a change
-                          stamped with the server's clock (pulls before it keep the old groups); "all" replaces the
-                          history (the groups count for every pull). Writes data/<team>/<tier>/<boss>/groups-<set>.json
+                          nothing else): body {"groups": {"Player": value, ...}}. Adds a change stamped with the server's
+                          clock: pulls before it keep their groups. Writes data/<team>/<tier>/<boss>/groups-<set>.json
                           -> {"ok": true, "changes": [...]}
+  PUT /api/flags/<team>/<tier>/<boss>   flag a pull with a data error (editor key): body {"pull": "<log name>#<pull n>",
+                          "flagged": true | false, "note": "..."}. Flagged pulls are hidden from the boss page for
+                          everyone without the editor key. Writes data/<team>/<tier>/<boss>/groups-flags.json
+                          -> {"ok": true, "flags": {pull: {"at": time, "note": ...}}}
   GET /api/check          confirm an upload token works                    -> {"ok": true}
+  GET /api/editor-check   confirm an editor (admin) key works              -> {"ok": true}
   GET /api/health         is the service running (no token needed)         -> {"ok": true}
 
 Settings come from environment variables (set in the systemd unit):
@@ -35,6 +39,7 @@ GROUP_SETS = {'twin-fangs': {'feast': lambda v: isinstance(v, int) and not isins
                              'kicks': lambda v: isinstance(v, str) and bool(KICK_SPOT.match(v))}}
 SLUG = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 GROUP_LOCK = threading.Lock()
+PULL_KEY = re.compile(r'^[A-Za-z0-9_.-]{1,80}#[0-9]{1,4}$')        # a pull: its log's name and its number in that log
 
 
 def load_token():
@@ -128,26 +133,26 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             body = json.loads(data)
-            groups, mode = body['groups'], body.get('from', 'now')
-            ok = (mode in ('now', 'all') and isinstance(groups, dict) and len(groups) <= 40 and
+            groups, mode = body['groups'], body.get('from', 'now')   # only "now": nothing may rewrite earlier pulls' groups
+            ok = (mode == 'now' and isinstance(groups, dict) and len(groups) <= 40 and
                   all(isinstance(k, str) and 0 < len(k) <= 40 and not any(ch in k for ch in '<>"&') and valid(v)
                       for k, v in groups.items()))
         except (ValueError, KeyError, TypeError):
             ok = False
         if not ok:
-            return self.reply(400, {'ok': False, 'error': 'groups must be {"Player": value}, from "now" or "all"'})
+            return self.reply(400, {'ok': False, 'error': 'groups must be {"Player": value}'})
         dest = os.path.realpath(os.path.join(SITE, 'data', *parts[:3], f'groups-{parts[3]}.json'))
         if not dest.startswith(SITE + os.sep):
             return self.reply(400, {'ok': False, 'error': 'path not allowed'})
         with GROUP_LOCK:
             changes = []
-            if mode == 'now' and os.path.exists(dest):
+            if os.path.exists(dest):
                 try:
                     with open(dest, encoding='utf-8') as f:
                         changes = json.load(f).get('changes', [])
                 except (OSError, ValueError):
                     changes = []
-            changes.append({'at': 0 if mode == 'all' else int(time.time()), 'groups': dict(sorted(groups.items()))})
+            changes.append({'at': int(time.time()), 'groups': dict(sorted(groups.items()))})
             changes = sorted(changes, key=lambda c: c.get('at', 0))[-500:]
             write_atomic(dest, json.dumps({'changes': changes}, ensure_ascii=False, indent=1).encode())
         self.reply(200, {'ok': True, 'changes': changes})
@@ -156,14 +161,57 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == '/api/health':
             return self.reply(200, {'ok': True})
+        if path == '/api/editor-check':
+            return self.reply(200, {'ok': True}) if EDITOR_KEY and self.authorized(EDITOR_KEY) else self.reply(401, {'ok': False, 'error': 'bad editor key'})
         if path == '/api/check':
             return self.reply(200, {'ok': True}) if self.authorized() else self.reply(401, {'ok': False, 'error': 'bad token'})
         self.reply(404, {'ok': False, 'error': 'not found'})
+
+    def put_flag(self, path):
+        parts = path[len('/api/flags/'):].strip('/').split('/')
+        if len(parts) != 3 or not all(SLUG.match(x) for x in parts):
+            return self.reply(400, {'ok': False, 'error': 'path not allowed'})
+        folder = os.path.realpath(os.path.join(SITE, 'data', *parts))
+        if not folder.startswith(SITE + os.sep) or not os.path.isdir(folder):      # only a boss folder that already has data
+            return self.reply(404, {'ok': False, 'error': 'no such boss folder'})
+        if not EDITOR_KEY:
+            return self.reply(503, {'ok': False, 'error': 'flagging is off (no editor key on the server)'})
+        if not self.authorized(EDITOR_KEY):
+            return self.reply(401, {'ok': False, 'error': 'bad editor key'})
+        data = self.read_body(4096)
+        if data is None:
+            return
+        try:
+            body = json.loads(data)
+            pull, on, note = body['pull'], body['flagged'], body.get('note', '')
+            ok = (isinstance(pull, str) and bool(PULL_KEY.match(pull)) and isinstance(on, bool) and isinstance(note, str)
+                  and len(note) <= 300 and not any(ch in note for ch in '<>'))
+        except (ValueError, KeyError, TypeError):
+            ok = False
+        if not ok:
+            return self.reply(400, {'ok': False, 'error': 'body must be {"pull": "<log>#<n>", "flagged": true|false, "note": "..."}'})
+        dest = os.path.join(folder, 'groups-flags.json')
+        with GROUP_LOCK:
+            flags = {}
+            if os.path.exists(dest):
+                try:
+                    with open(dest, encoding='utf-8') as f:
+                        flags = json.load(f).get('flags', {})
+                except (OSError, ValueError):
+                    flags = {}
+            if on:
+                flags[pull] = {'at': int(time.time()), 'note': note}
+            else:
+                flags.pop(pull, None)
+            write_atomic(dest, json.dumps({'flags': flags}, ensure_ascii=False, indent=1).encode())
+        self.reply(200, {'ok': True, 'flags': flags})
 
     def do_PUT(self):
         path = urlsplit(self.path).path
         if path.startswith('/api/groups/'):
             return self.put_groups(path)
+        if path.startswith('/api/flags/'):
+            return self.put_flag(path)
         if not path.startswith('/api/files/'):
             return self.reply(404, {'ok': False, 'error': 'not found'})
         if not self.authorized():

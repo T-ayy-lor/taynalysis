@@ -326,9 +326,8 @@ function drawTimeline(nights, o){
 
 // ---- group picks (Twin Fangs feast groups and kick order; Taylor 2026-11-02) ----
 // data/<team>/<tier>/<boss>/groups-<set>.json = {changes: [{at: UTC seconds (0 = from the start), groups: {player: value},
-// diffs?: [difficulties it applies to]}]}. Written by the uploader when the NSRT raid note changes (on its own, whenever WoW
-// saves it) and by the page's Edit groups (the server's PUT /api/groups/<team>/<tier>/<boss>/<set>, with the editor key,
-// which can save group picks and nothing else). A pull uses the last change made before it started, so a change never
+// diffs?: [difficulties it applies to]}]}. Written by the page's Edit groups (Save: counts from that moment on (the server's PUT /api/groups/<team>/<tier>/
+// <boss>/<set>, with the editor key, which can save group picks and nothing else)). A pull uses the last change made before it started, so a change never
 // rewrites the pulls before it.
 const EDITOR_KEY = 'tay-editor-key';
 async function loadGroups(boss, set){
@@ -354,37 +353,133 @@ details.grped summary{cursor:pointer;color:var(--muted);font:600 .85rem var(--f-
 // el: a box under the card's table. o: {boss, set, options ([value, label] per choice), names (players to list), current
 // (values now), changes (history), onSaved(changes)}. While it's open the page's re-renders leave it alone (picks stay).
 function groupEditor(el, o){
+  if (!isEditor()){ el.innerHTML = ''; return; }   // admin mode only (the title row's Admin key)
   const open = el.querySelector('details.grped') && el.querySelector('details.grped').open;
   if (open) return;
   const cur = o.current || {}, names = [...new Set([...o.names, ...Object.keys(cur)])];
   const opt = n => `<option value="">–</option>` + o.options.map(([v, l]) => `<option value="${v}"${String(cur[n]) === String(v) ? ' selected' : ''}>${l}</option>`).join('');
-  const fmt = c => c.at ? new Date(c.at * 1000).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : 'every pull';
+  const fmt = c => c.at ? new Date(c.at * 1000).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : 'from the start';
   const histText = ch => { const h = (ch || []).slice(-4).reverse().map(fmt).join(' · ');
-    return h ? `Saved changes (newest first): ${h}. Each pull uses the groups saved before it started.` : 'Nothing saved yet. "Save for every pull" sets the groups for all pulls, past ones too; "Save from now on" only changes pulls that start after you save.'; };
-  let key = ''; try { key = localStorage.getItem(EDITOR_KEY) || ''; } catch (e) {}
+    return h ? `Saved changes (newest first): ${h}. Each pull uses the groups saved before it started.` : 'Nothing saved yet. Saved groups count for pulls that start after you save; earlier pulls keep theirs.'; };
   el.innerHTML = `<details class="grped"${open ? ' open' : ''}><summary>${o.title || 'Edit groups'}</summary>
     <div class="gg">${names.map(n => `<label><span>${typeof pname === 'function' ? pname(n) : n}</span><select data-n="${n.replace(/"/g, '&quot;')}" aria-label="${o.label || 'Group'} for ${n.replace(/"/g, '&quot;')}">${opt(n)}</select></label>`).join('')}</div>
-    <div class="gact"><input type="password" class="gkey" placeholder="Editor key" aria-label="Editor key"${key ? ' hidden' : ''}>
-      <button type="button" class="pri" data-from="now">Save from now on</button><button type="button" data-from="all">Save for every pull</button>
+    <div class="gact"><button type="button" class="pri" data-from="now">Save</button>
       <span class="gmsg"></span></div>
     <div class="ghist">${histText(o.changes)}</div></details>`;
   const msg = (t, bad) => { const m = el.querySelector('.gmsg'); m.textContent = t; m.classList.toggle('bad', !!bad); };
   el.querySelectorAll('button[data-from]').forEach(b => b.onclick = async () => {
     const groups = {}; el.querySelectorAll('select[data-n]').forEach(s => { if (s.value) groups[s.dataset.n] = /^\d+$/.test(s.value) ? +s.value : s.value; });
-    const ki = el.querySelector('.gkey'); let k = key || ki.value.trim();
-    if (!k){ ki.hidden = false; ki.focus(); msg('Type the editor key first (the server setup printed it).', true); return; }
-    if (b.dataset.from === 'all' && !confirm('Use these groups for every pull, including all past ones? This replaces every earlier change.')) return;
+    const k = adminKey();
     msg('Saving…');
     try {
       const r = await fetch(`api/groups/${TEAM.id}/${TIER}/${o.boss}/${o.set}`, {method: 'PUT', headers: {'Authorization': 'Bearer ' + k, 'Content-Type': 'application/json'},
         body: JSON.stringify({groups, from: b.dataset.from})});
       const j = await r.json().catch(() => ({}));
-      if (r.status === 401){ try { localStorage.removeItem(EDITOR_KEY); } catch (e) {} key = ''; ki.hidden = false; ki.value = ''; msg('The server didn\'t accept that editor key.', true); return; }
+      if (r.status === 401){ msg('The server didn\'t accept the admin key: sign out (title row) and save it again.', true); return; }
       if (!r.ok || !j.ok){ msg(j.error || `Couldn't save (${r.status}).`, true); return; }
-      try { localStorage.setItem(EDITOR_KEY, k); } catch (e) {}
-      key = k; ki.hidden = true; msg('Saved.');
+      msg('Saved.');
       const ch = j.changes.slice().sort((a, c) => a.at - c.at); el.querySelector('.ghist').textContent = histText(ch);
       o.onSaved && o.onSaved(ch);
     } catch (e) { msg('Couldn\'t reach the server.', true); }
+  });
+}
+
+// ---- LOCAL PREVIEW ONLY (localhost): reload when the site's files change (Taylor 2026-11-02: "i cant see ur changes bc i
+// havent refreshed" ... "this is for the local server only"). Every 2 s, while the tab is visible, ask the preview server
+// (HEAD, nothing downloaded) whether this page or its own scripts / styles changed; reload when one did. Waits while an
+// "Edit groups" box is open, so picks being made aren't lost. The live site never runs this. ----
+(() => {
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) return;
+  const files = () => [location.pathname, ...[...document.scripts].map(s => s.src), ...[...document.querySelectorAll('link[rel="stylesheet"]')].map(l => l.href)]
+    .filter(u => u).map(u => new URL(u, location.href)).filter(u => u.origin === location.origin).map(u => u.pathname);
+  const stamp = async path => { try { const r = await fetch(path + '?v=' + Date.now(), {method: 'HEAD', cache: 'no-store'}); if (!r.ok) return null;
+    return r.headers.get('etag') || r.headers.get('last-modified') || r.headers.get('content-length'); } catch (e) { return null; } };
+  const seen = {};
+  let pending = false;
+  const busy = () => document.querySelector('details.grped[open]') || (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && document.activeElement.closest('details.grped'));
+  async function check(){
+    if (document.hidden) return;
+    if (pending){ if (!busy()) location.reload(); return; }
+    for (const f of [...new Set(files())]){
+      const s = await stamp(f); if (s == null) continue;
+      if (!(f in seen)){ seen[f] = s; continue; }
+      if (s !== seen[f]){ pending = true; if (!busy()) location.reload(); return; }
+    }
+  }
+  addEventListener('load', () => { check(); setInterval(check, 2000); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+})();
+
+// ---- flagged pulls (Taylor 2026-11-02: "flagging a specific pull for data errors ... hides it from users"): data/<team>/<tier>/
+// <boss>/groups-flags.json = {flags: {"<log name>#<pull n>": {at, note}}}, saved by the server's PUT /api/flags/... with the
+// editor key. A flagged pull is left out of everything on the boss page, after the pulls are numbered (numbers don't shift);
+// in admin mode (the title row's Admin key saved) it's still shown, marked, and its ⚑ button beside a pull dropdown unflags it. ----
+const FLAGS = {map: {}, raw: null};
+const flagKey = (D, p) => `${D.log}#${p.n}`;
+const adminKey = () => { try { return localStorage.getItem(EDITOR_KEY) || ''; } catch (e) { return ''; } };
+const isEditor = () => !!adminKey();   // admin mode: an admin (editor) key saved in this browser, from the title row's field
+const isFlagged = fk => !!FLAGS.map[fk];
+const showPull = fk => !isFlagged(fk) || isEditor();
+const flagTag = fk => isFlagged(fk) ? ' · ⚑ flagged' : '';
+async function refreshFlags(slug){   // true when the flags changed
+  try { const r = await fetch(dataDir(slug) + 'groups-flags.json?t=' + Date.now(), {cache: 'no-store'});
+    const j = r.ok ? await r.json() : {flags: {}}, raw = JSON.stringify(j.flags || {});
+    if (raw !== FLAGS.raw){ FLAGS.raw = raw; FLAGS.map = j.flags || {}; return true; } } catch (e) {}
+  return false;
+}
+(() => { const s = document.createElement('style'); s.textContent = `
+.adminbox{display:inline-flex;align-items:center;gap:6px;font:500 .78rem var(--f-body);color:var(--muted);margin-left:4px}
+.adminbox input{width:120px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;font:inherit;padding:4px 6px}
+.adminbox button{background:none;color:var(--muted);border:1px solid var(--line);border-radius:6px;font:600 .74rem var(--f-body);padding:4px 8px;cursor:pointer}
+.adminbox button:hover{color:var(--ink)} .adminbox .on{color:var(--accent);font-weight:600} .adminbox .bad{color:var(--crit)}
+button.ficon{flex:none;background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:.85rem;line-height:1;padding:5px 7px;cursor:pointer}
+button.ficon:hover{color:var(--ink)} button.ficon[aria-pressed="true"]{color:var(--crit);border-color:var(--crit)}`; document.head.appendChild(s); })();
+// the title row's "Admin key" field (after the night picker): saving a key there turns on admin mode in this browser (flag
+// icons beside the pull dropdowns, Edit groups); the server checks it (GET /api/editor-check) before it's kept
+function adminBox(){
+  const night = document.getElementById('night'); if (!night || document.getElementById('adminbox')) return;
+  const box = document.createElement('span'); box.id = 'adminbox'; box.className = 'adminbox'; night.after(box);
+  const draw = msg => {
+    box.innerHTML = isEditor() ? `<span class="on">Admin</span><button type="button" data-a="out" title="Forget the admin key in this browser">Sign out</button>`
+      : `<label for="adminkey">Admin key:</label><input type="password" id="adminkey" autocomplete="current-password"><button type="button" data-a="in">Save</button>${msg ? `<span class="bad">${msg}</span>` : ''}`;
+    const inp = box.querySelector('input'); if (inp) inp.onkeydown = e => { if (e.key === 'Enter') save(); };
+    box.querySelector('button').onclick = () => isEditor() ? (localStorage.removeItem(EDITOR_KEY), location.reload()) : save();
+  };
+  const save = async () => {
+    const k = (box.querySelector('input').value || '').trim(); if (!k) return;
+    try { const r = await fetch('api/editor-check', {headers: {'Authorization': 'Bearer ' + k}, cache: 'no-store'});
+      if (r.status === 401){ draw('not accepted'); return; } } catch (e) {}   // no answer (server not updated yet): keep it anyway
+    try { localStorage.setItem(EDITOR_KEY, k); } catch (e) { draw('your browser blocked saving it'); return; }
+    location.reload();
+  };
+  draw();
+}
+addEventListener('DOMContentLoaded', adminBox); if (document.readyState !== 'loading') adminBox();
+// a ⚑ button beside each pull dropdown, in admin mode only, while that dropdown has a single pull picked (not Latest /
+// Overall): pressed = flagged; a click flags / unflags it. resolve(select) -> the picked pull's flag key, or null.
+function flagIcons(slug, selects, resolve, rerender){
+  selects.forEach(sel => {
+    if (!sel) return;
+    let b = sel.nextElementSibling && sel.nextElementSibling.classList.contains('ficon') ? sel.nextElementSibling : null;
+    const fk = isEditor() ? resolve(sel) : null;
+    if (!fk){ if (b) b.remove(); }
+    else {
+      if (!b){ b = document.createElement('button'); b.type = 'button'; b.className = 'ficon'; sel.after(b); }
+      const on = isFlagged(fk);
+      b.textContent = '⚑'; b.setAttribute('aria-pressed', String(on)); b.dataset.fk = fk;
+      b.title = on ? `Flagged: hidden from everyone but you${FLAGS.map[fk].note ? ' (' + FLAGS.map[fk].note + ')' : ''}. Click to unflag.` : 'Flag this pull as bad data: hides it from everyone but you';
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          const r = await fetch(`api/flags/${TEAM.id}/${TIER}/${slug}`, {method: 'PUT', headers: {'Authorization': 'Bearer ' + adminKey(), 'Content-Type': 'application/json'},
+            body: JSON.stringify({pull: b.dataset.fk, flagged: !isFlagged(b.dataset.fk), note: ''})});
+          const j = await r.json().catch(() => ({}));
+          if (r.ok && j.ok){ FLAGS.map = j.flags || {}; FLAGS.raw = JSON.stringify(FLAGS.map); rerender(); }
+          else b.title = r.status === 401 ? 'The server did not accept the admin key: sign out and save it again' : (j.error || `Could not save (${r.status})`);
+        } catch (e) { b.title = 'Could not reach the server'; }
+        b.disabled = false;
+      };
+    }
+    if (!sel.dataset.ficon){ sel.dataset.ficon = '1'; sel.addEventListener('change', () => flagIcons(slug, [sel], resolve, rerender)); }
   });
 }

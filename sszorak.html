@@ -279,8 +279,6 @@ details.pick summary span{font-weight:400}
 @media (max-width:1200px),(orientation:portrait){.mapgrid{grid-template-columns:minmax(0,1fr)}.vpanel{contain:none}.vpanel .vt{flex:none;max-height:none}}
 /* panels in a row are the same height (the tallest sets it); stacked short panels stretch to line up with their neighbour */
 .grid2,.lower,.bottom,.mods{align-items:stretch}
-.mods{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;margin-bottom:18px}
-@media (max-width:800px){.mods{grid-template-columns:minmax(0,1fr)}}
 .bottom .stack > .panel:last-child{flex:1 1 auto}
 .mpanel canvas{max-width:100%}
 a.ab{color:inherit;text-decoration:underline dotted;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px;cursor:help}   /* Wowhead tooltip links */
@@ -289,9 +287,14 @@ a.ab{color:inherit;text-decoration:underline dotted;text-decoration-color:color-
 .vcol{display:flex;flex-direction:column;gap:18px;min-width:0;contain:size}
 .vcol > .vpanel{contain:none;flex:0 1 auto;min-height:0}
 .vcol > .vpanel .vt{flex:0 1 auto}
-.vcol > #surgePanel{flex:1 1 0}
-.vcol > #boomPanel{flex:1 1 0;min-height:300px;display:flex;flex-direction:column}
-#boomPanel .booms{flex:1 1 0}
+.vcol > #surgePanel,.vcol > #crossCard{flex:1 1 0;min-height:200px}
+.vcol > .vpanel .vt{flex:1 1 0}
+.mods{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;margin-bottom:18px;align-items:start}
+.mods > .panel{display:flex;flex-direction:column;min-width:0}
+.mods .vt,.mods .booms{flex:1 1 auto;min-height:0;overflow:auto}
+.mods.fitted > .panel .vt,.mods.fitted > .panel .booms{flex:1 1 0}
+#boomPanel .booms{min-height:120px}
+@media (max-width:800px){.mods{grid-template-columns:minmax(0,1fr)}.mods .vt,.mods .booms{max-height:420px}}
 .scrollfit{overflow-y:auto;min-height:0}
 .scrollfit.more{-webkit-mask-image:linear-gradient(to bottom,#000 82%,transparent);mask-image:linear-gradient(to bottom,#000 82%,transparent)}
 .bottom .stack > .panel{flex:none}
@@ -299,7 +302,7 @@ a.ab{color:inherit;text-decoration:underline dotted;text-decoration-color:color-
 .bottom .stack > .panel:last-child{flex:1 1 0;min-height:300px;display:flex;flex-direction:column;contain:size}
 .bottom .stack > .panel:last-child > .scrollfit{flex:1 1 0}
 .lower{grid-template-columns:minmax(0,1fr)}
-@media (max-width:1200px),(orientation:portrait){.vcol{contain:none}.vcol > .panel,.vcol > #boomPanel,.vcol > #surgePanel{flex:none;min-height:0}#boomPanel .booms{flex:none;max-height:420px}}
+@media (max-width:1200px),(orientation:portrait){.vcol{contain:none}.vcol > .panel,.vcol > #surgePanel,.vcol > #crossCard{flex:none;min-height:0}.vcol > .vpanel .vt{flex:none;max-height:420px}}
 @media (max-width:800px){.bottom .stack > .panel:last-child{contain:none;flex:none;min-height:0}.bottom .stack > .panel:last-child > .scrollfit{flex:none;max-height:420px}}
 </style>
 </head>
@@ -347,7 +350,11 @@ a.ab{color:inherit;text-decoration:underline dotted;text-decoration-color:color-
       </div>
       <div class="mapctl">
         <div id="crossCtl" class="surgectl" hidden>
-          <p class="note">Every Raging Crosswinds launch in the pulls picked above. Each dot is where a player was launched; the arrow points the way their Raging Crosswinds sent them, the dashed line ends where they came down. A cross = died. Click a player in the table to show only theirs.</p>
+          <div class="row">
+            <span class="lbl">Set</span>
+            <div class="seg" id="xsetSegMap" role="group" aria-label="Which set of Raging Crosswinds"></div>
+          </div>
+          <p class="note">Raging Crosswinds launches in the pulls picked above, for the set picked here or on the Raging Crosswinds card (All, 1st, 2nd... of each pull). Each dot is where a player was launched; the arrow points the way their Raging Crosswinds sent them, the dashed line ends where they came down. A cross = died. Click a player in that card to show only theirs.</p>
         </div>
         <div id="surgeCtl" class="surgectl" hidden>
           <div class="row">
@@ -408,7 +415,21 @@ a.ab{color:inherit;text-decoration:underline dotted;text-decoration-color:color-
       </div>
     </div>
     <div class="vcol">
-      <div class="panel vpanel" id="virPanel">
+      <div class="panel vpanel" id="surgePanel">
+        <div class="meterhead"><h2>Venomous Surge drops</h2></div>
+        <div class="tablewrap vt"><table id="stbl"></table></div>
+        <p class="note">Click a player to highlight their drops and show the path they took while they had the debuff.</p>
+      </div>
+      <div class="panel vpanel" id="crossCard">
+        <div class="meterhead"><h2>Raging Crosswinds</h2><div class="seg mini" id="xsetSeg" role="group" aria-label="Which set of Raging Crosswinds"></div></div>
+        <div class="tablewrap vt"><table class="st" id="crossT"></table></div>
+        <p class="note">Each set of arrows in a pull: 1st, 2nd... (the buttons above; the map shows the same set). In the air: average seconds from launch to coming down. Deaths: died in the air or within 3 s of landing. Click a player to show only theirs on the map (Crosswinds view).</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="mods" id="virRow">
+      <div class="panel" id="virPanel">
         <div class="meterhead"><h2>Positioning consistency</h2></div>
         <div class="tablewrap vt">
           <table id="tbl">
@@ -422,33 +443,10 @@ a.ab{color:inherit;text-decoration:underline dotted;text-decoration-color:color-
         </div>
         <p class="note">Click a player to highlight their dots, average spot and trail. Drift: how far from their own usual spot they stand (lower = steadier).</p>
       </div>
-      <div class="panel vpanel" id="surgePanel" hidden>
-        <div class="meterhead"><h2>Venomous Surge drops</h2></div>
-        <div class="tablewrap vt"><table id="stbl"></table></div>
-        <p class="note">Click a player to highlight their drops and show the path they took while they had the debuff.</p>
-      </div>
-      <div class="panel vpanel" id="crossPanel" hidden>
-        <div class="meterhead"><h2>Raging Crosswinds</h2></div>
-        <div class="tablewrap vt"><table id="xtbl"></table></div>
-      </div>
       <div class="panel" id="boomPanel">
         <h2>Explosion chains</h2>
         <div class="booms scrollfit" id="booms"></div>
       </div>
-    </div>
-  </div>
-
-  <div class="mods">
-    <div class="panel">
-      <div class="meterhead"><h2 style="margin:0">Mutilate soaks</h2><select id="mutPull" aria-label="Pulls to show"></select></div>
-      <div class="tw"><table class="st" id="mutT"></table></div>
-      <p class="note" id="mutNote"></p>
-    </div>
-    <div class="panel">
-      <div class="meterhead"><h2 style="margin:0">Raging Crosswinds</h2><select id="crossPull" aria-label="Pulls to show"></select></div>
-      <div class="tw"><table class="st" id="crossT"></table></div>
-      <p class="note">Arrows each player got, and how many times they died from one (in the air or within 3 s of coming down). Where each set flew and which way each arrow pointed: the map's Crosswinds view.</p>
-    </div>
   </div>
 
   <div class="panel" id="tempestPanel">
@@ -614,7 +612,7 @@ function isDark(){ const t=document.documentElement.dataset.theme; if(t) return 
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 // ---- state
-const st = {k:20, R:8, frame:'room', healers:false, view:'avg', assign:true, rot:0, mir:false, sel:null, on:new Set(CASTS.filter(c=>c.side===1).map(c=>c.id)), preset:'first', sort:'drift', asc:true, dmgPull:DEF_SCOPE, dmgTarget:'all', tmpPull:DEF_SCOPE, mech:'vir', mapPull:DEF_SCOPE, sR:7, sBad:false};
+const st = {k:20, R:8, frame:'room', healers:false, view:'avg', assign:true, rot:0, mir:false, sel:null, on:new Set(CASTS.filter(c=>c.side===1).map(c=>c.id)), preset:'first', sort:'drift', asc:true, dmgPull:DEF_SCOPE, dmgTarget:'all', tmpPull:DEF_SCOPE, mech:'vir', mapPull:DEF_SCOPE, sR:7, sBad:false, xset:'all'};
 try { const s = JSON.parse(localStorage.getItem('vir-ui')||'{}'); if (s.rot!=null) st.rot=s.rot; if (s.mir!=null) st.mir=s.mir; if (s.R) st.R=s.R; } catch(e){}
 function save(){ try{ localStorage.setItem('vir-ui', JSON.stringify({rot:st.rot,mir:st.mir,R:st.R})); }catch(e){} }
 
@@ -724,18 +722,19 @@ function drawAssign(model, sel, avgItems, pass){
   groups.forEach(g=>{
     const pos = ASSIGN.pos[g]; if(!pos) return;
     // planned boss spot
-    const bp = pos.__boss; if (bp && pass==='rings'){ const [x,y]=toPx(null,bp); ctx.globalAlpha=sel?0.3:0.8; ctx.setLineDash([5*U,5*U]); ctx.lineWidth=2.5*U; ctx.strokeStyle=mink; ctx.beginPath(); ctx.arc(x,y,16*U,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; }
+    const bp = pos.__boss; if (bp && pass==='rings'){ const [x,y]=toPx(null,bp); ctx.globalAlpha=sel?0.3:0.8; ctx.setLineDash([5*UD,5*UD]); ctx.lineWidth=2.5*UD; ctx.strokeStyle=mink; ctx.beginPath(); ctx.arc(x,y,16*UD,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; }
     Object.entries(pos).forEach(([n,p])=>{
       if (n==='__boss' || !shown(n) || !model.rows.some(r=>r.name===n)) return;
       const [x,y]=toPx(null,p); const isSel=n===sel, fade=sel && !isSel;
       ctx.globalAlpha = fade?0.18:1;
       const it = avgItems && avgItems.find(i=>i.n===n && i.i===g);
       if (pass==='lines'){ if (it){ const [ax,ay]=toPx(null,it.m); ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(x,y); ctx.strokeStyle=playerColor(n,.7); ctx.lineWidth=(isSel?3:2)*U; ctx.setLineDash([6*U,5*U]); ctx.stroke(); ctx.setLineDash([]); } ctx.globalAlpha=1; return; }
-      const r=(isSel?17:14)*U;
+      // assigned-spot rings use the player-dot size (UD), so on phones they shrink with the dots instead of growing with the map
+      const r=(isSel?17:14)*UD;
       ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fill();
-      ctx.lineWidth=(isSel?4.5:3.5)*U; ctx.strokeStyle=playerColor(n); ctx.stroke();
-      ctx.beginPath(); ctx.arc(x,y,r+2.6*U,0,Math.PI*2); ctx.lineWidth=1.6*U; ctx.strokeStyle='rgba(0,0,0,.75)'; ctx.stroke();
-      ctx.font=`700 ${15*U}px ${css('--f-mono')||'monospace'}`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle=mink; ctx.fillText(String(ASSIGN.slots[n]||''), x, y+U);
+      ctx.lineWidth=(isSel?4.5:3.5)*UD; ctx.strokeStyle=playerColor(n); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x,y,r+2.6*UD,0,Math.PI*2); ctx.lineWidth=1.6*UD; ctx.strokeStyle='rgba(0,0,0,.75)'; ctx.stroke();
+      ctx.font=`700 ${15*UD}px ${css('--f-mono')||'monospace'}`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle=mink; ctx.fillText(String(ASSIGN.slots[n]||''), x, y+UD);
       ctx.globalAlpha=1;
       const dist = it ? d2(it.m,p) : NaN;
       HIT.push({x,y,n,label:`${n} · assigned spot #${ASSIGN.slots[n]} (${g===1?'1st':'2nd'} Virulence)`+(isFinite(dist)?` · average is ${dist.toFixed(1)} yd away`:'')});
@@ -962,23 +961,25 @@ function drawSurge(){
     HIT.push({x, y, n: d.n, label: `${d.n} · Pull ${d.p.n} · Surge at ${mss2(d.g.t)} · ${what}`}); });
 }
 // ---- Raging Crosswinds on the map: each set (arrows within 3 s), where each player was launched, the way their arrow sent
-// them and where they came down. The arrow's direction comes from its spell: in Taylor's logs (Heroic and Mythic) 1285425
-// always flew toward world angle -16° and 1285453 toward 164° (atan2 of the log's Y over X), so the two arrows face each other ----
-const XW_DIR = {'1285425': -16, '1285453': 164}, XW_LEN = 12;
+// them and where they came down. The arrow's direction is its spell's: in Taylor's logs 1285425 flies toward world angle
+// -16°, 1285453 toward 164°, and on Mythic also 1297111 toward 74° and 1297096 toward -106° (atan2 of the log's Y over X):
+// two pairs facing each other on crossing lines. Mythic sets hold 8 arrows, Heroic / Normal 6-12 of the first two ----
+const XW_DIR = {'1285425': -16, '1285453': 164, '1297111': 74, '1297096': -106}, XW_LEN = 12;   // Mythic adds the last two
 function crossSets(){
   const out = [];
   surgePulls().forEach(p => { const H = p.hau || [], gusts = H.filter(h => h[0] === 'gust' && h[3] != null);
     H.filter(h => h[0] === 'cross').sort((a, b) => a[2] - b[2]).forEach(a => {
       let s = out.length && out[out.length - 1].p === p && a[2] - out[out.length - 1].t <= 3 ? out[out.length - 1] : null;
-      if (!s){ s = {p, t: a[2], rows: []}; s.id = p.n + ':' + a[2]; out.push(s); }
+      if (!s){ s = {p, t: a[2], rows: [], k: out.filter(x => x.p === p).length + 1}; s.id = p.n + ':' + a[2]; out.push(s); }
       const g = a[3] != null && gusts.find(x => x[1] === a[1] && Math.abs(x[2] - a[3]) < 0.5);
       const end = g ? g[3] : a[3];
       const died = (p.deaths || []).some(d => d[1] === a[1] && d[0] >= a[2] && end != null && d[0] <= end + 3);
       s.rows.push({n: a[1], dir: XW_DIR[a[4]], from: (g && g[5]) || a[6], to: g ? g[6] : null, air: g ? g[3] - g[2] : null, died}); }); });
   return out;
 }
+const shownSets = () => crossSets().filter(s => st.xset === 'all' || s.k === st.xset);   // the set picked on the Crosswinds card
 function drawCross(){
-  const sel = st.sel, sets = crossSets(), k = sets.reduce((a, s) => a + s.rows.length, 0);
+  const sel = st.sel, sets = shownSets(), k = sets.reduce((a, s) => a + s.rows.length, 0);
   // like the other maps: many launches = smaller, see-through marks; names only while there are few
   const R = k > 150 ? .55 : k > 60 ? .75 : 1, A = k > 150 ? .45 : 1, names = k <= 24;
   const head = (x0, y0, x1, y1, c) => { const a = Math.atan2(y1 - y0, x1 - x0), h = 11 * U;
@@ -995,13 +996,6 @@ function drawCross(){
     ctx.globalAlpha = 1;
     HIT.push({x, y, n: r.n, label: `${r.n} · Pull ${s.p.n} · Raging Crosswinds at ${mss2(s.t)}` + (r.air != null ? ` · ${r.air.toFixed(1)} s in the air` : '') + (r.died ? ' · died' : '')}); }));
 }
-function renderCrossSide(){   // per player, over the map's pulls: launches, average time in the air, deaths
-  const P = {}; crossSets().forEach(s => s.rows.forEach(r => { const x = (P[r.n] ||= {n: r.n, k: 0, air: [], died: 0}); x.k++; if (r.air != null) x.air.push(r.air); if (r.died) x.died++; }));
-  const rows = Object.values(P).sort((a, b) => b.died - a.died || b.k - a.k || a.n.localeCompare(b.n));
-  $('xtbl').innerHTML = `<thead><tr><th>Player</th><th>Arrows</th><th>In the air</th><th>Deaths</th></tr></thead><tbody>` + rows.map(r =>
-    `<tr data-n="${esc(r.n)}"${r.n === st.sel ? ' class="sel"' : ''}><td><span class="pn" style="--cc:${classHex(r.n)}">${esc(r.n)}</span></td><td class="n">${r.k}</td><td class="n">${r.air.length ? (r.air.reduce((a, b) => a + b, 0) / r.air.length).toFixed(1) + ' s' : '–'}</td><td class="n${r.died ? ' bad' : ''}">${r.died}</td></tr>`).join('') + '</tbody>';
-}
-$('xtbl').addEventListener('click', e => { const tr = e.target.closest('tr[data-n]'); if (tr) pick(tr.dataset.n); });
 
 function renderSurgeSide(){
   const all = surgePulls().flatMap(p => p.surges || []), drops = surgeDrops();
@@ -1074,12 +1068,12 @@ function render(){
   [['mVir', 'vir'], ['mSurge', 'surge'], ['mCross', 'cross']].forEach(([id, m]) => $(id).setAttribute('aria-pressed', String(st.mech === m)));
   const surge = st.mech === 'surge', cross = st.mech === 'cross', vir = st.mech === 'vir';
   $('virCtl').hidden = !vir; $('surgeCtl').hidden = !surge; $('crossCtl').hidden = !cross;
-  $('virPanel').hidden = !vir; $('surgePanel').hidden = !surge; $('crossPanel').hidden = !cross; $('boomPanel').hidden = !vir;
+  $('virRow').hidden = !virOk;   // the tables beside and under the map are always there; the switch only changes the map
   ['lgAvg','lgA','lgB','lgAsg'].forEach(id => { if (!vir) $(id).hidden = true; }); $('lgSurge').hidden = !surge;
   mapPullSelect();
   const model = compute(); setView(model.vis); draw(model); table(model); chips();
-  if (surge){ renderSurgeSide(); return; }
-  if (cross){ renderCrossSide(); return; }
+  renderSurgeSide(); renderCross();
+  if (surge || cross) return;
   if (!model.vis.length && CASTS.length){ ctx.save(); ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(0,L/2-50*U,L,100*U); ctx.fillStyle='#efe6eb'; ctx.font=`600 ${30*U}px ${css('--f-body')||'sans-serif'}`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('No casts selected', L/2, L/2); ctx.restore(); }
 }
 
@@ -1133,8 +1127,10 @@ function nights(){
   return Object.values(g).sort((x, y) => x.key < y.key ? -1 : 1).map(n => (n.files.sort((x, y) => x.log < y.log ? -1 : 1), n));
 }
 function combine(sets, diff){
-  const pulls = [], specs = {}; let updated = '';
-  sets.forEach(D => { Object.assign(specs, D.specs || {}); if ((D.updated || '') > updated) updated = D.updated; (D.pulls || []).forEach(p => { if (p.diff === diff) pulls.push(Object.assign({}, p, {n: pulls.length + 1, key: D.log + '#' + p.n, tz: D.tz, nspecs: D.specs || {}})); }); });
+  const pulls = [], specs = {}; let updated = '', num = 0;
+  // numbered first, then pulls flagged with bad data are left out (for all but the editor), so numbers don't shift
+  sets.forEach(D => { Object.assign(specs, D.specs || {}); if ((D.updated || '') > updated) updated = D.updated; (D.pulls || []).forEach(p => { if (p.diff !== diff) return; num++;
+    const fk = flagKey(D, p); if (showPull(fk)) pulls.push(Object.assign({}, p, {n: num, key: D.log + '#' + p.n, fk, tz: D.tz})); }); });
   return {step:0.25, pulls, specs, updated};
 }
 // the chosen night's (or every night's) files; only the chosen difficulty's pulls are shown (the team's data stays its own either way)
@@ -1151,11 +1147,11 @@ function viewData(){
 }
 // "ignore events after N deaths" (shared.js cutPull): how each list in a pull is timed; dmg / heal / dispels stay whole.
 // Tempest keeps each player's hit times: hits are recounted and the damage scaled to the hits kept.
-const CUT_SPEC = {casts: 'obj:t', surges: 'obj:t', avoid: 'row', deaths: 'row', mut: 'row', hau: 'at:2',
+const CUT_SPEC = {casts: 'obj:t', surges: 'obj:t', avoid: 'row', deaths: 'row', hau: 'at:2',
   tempest: (v, T) => Object.fromEntries(Object.entries(v).map(([n, x]) => { const t = (x.t || []).filter(s => s <= T);
     return [n, {...x, t, hits: t.length, dmg: x.t && x.t.length ? Math.round(x.dmg * t.length / x.t.length) : x.dmg}]; }).filter(([, x]) => x.hits))};
 // every loaded pull on every night (any difficulty)
-const allPulls = () => nights().flatMap(n => n.files.map(f => SITE.files[f.file]).filter(Boolean)).flatMap(D => D.pulls || []);
+const allPulls = () => nights().flatMap(n => n.files.map(f => SITE.files[f.file]).filter(Boolean)).flatMap(D => (D.pulls || []).filter(p => showPull(flagKey(D, p))));
 function renderDiff(){
   const d0 = SITE.diff != null ? SITE.diff : TEAM.diff, ps = viewSets().flatMap(D => D.pulls || []);
   $('diffSeg').querySelectorAll('button').forEach(b => { const d = +b.dataset.d;
@@ -1174,6 +1170,9 @@ function applyView(){
   else st.on = new Set([...st.on].filter(id => CASTS.some(c => c.id === id)));
   if (!st.on.size){ st.preset = CASTS.some(c => c.side === 1) ? 'first' : 'all'; st.on = presetSet(st.preset); }
   boomList(); render(); renderMeter(); renderStd(); setHeader(); renderNightSelect(); renderDiff(); renderTimeline(); setLiveStatus();
+  // admin: ⚑ beside each pull dropdown while it has one pull picked (values are pull numbers here)
+  flagIcons('sszorak', ['mapPull', 'dmgPull', 'tmpPull', 'healPull', 'dispPull', 'deathPull', 'avoidPull'].map(id => $(id)),
+    el => { const p = DATA.pulls.find(p => String(p.n) === el.value); return p ? p.fk : null; }, applyView);
 }
 // ---- timeline: the chosen night's row (every night's with All nights), drawn by drawTimeline in shared.js ----
 function renderTimeline(){
@@ -1181,7 +1180,7 @@ function renderTimeline(){
   const selP = st.dmgPull === st.tmpPull && DATA.pulls.find(p => String(p.n) === st.dmgPull);
   const mm = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   drawTimeline(shown.map(n => ({key: n.key, date: n.date, cur: SITE.view === n.key, logs: n.files.map(f => f.log),
-    pulls: n.files.flatMap(f => { const D = SITE.files[f.file]; return D ? (D.pulls || []).map(p => ({key: D.log + '#' + p.n, date: p.date, clock: p.clock, tz: D.tz,
+    pulls: n.files.flatMap(f => { const D = SITE.files[f.file]; return D ? (D.pulls || []).filter(p => showPull(flagKey(D, p))).map(p => ({key: D.log + '#' + p.n, date: p.date, clock: p.clock, tz: D.tz,
       dur: p.dur, kill: p.kill, diff: p.diff, title: `${mm(p.dur)} · ${p.live ? 'in progress' : p.kill ? 'kill' : p.hp != null ? `wipe at ${(p.hp * 100).toFixed(1)}%` : 'wipe'}`})) : []; })
       .sort((a, b) => a.clock.localeCompare(b.clock))})), {enc: ['3420'], name: 'Sszorak', diff: SITE.diff != null ? SITE.diff : TEAM.diff, sel: selP ? selP.key : null});
   // a click on a night opens it; a click on a pull also shows just that pull everywhere (its casts on the map, Damage and Tempest)
@@ -1210,6 +1209,7 @@ async function checkSite(){
     // open on the newest night during raid hours, else all nights; after that, never change the night someone is looking at
     if (!SITE.view) SITE.view = startNight(nights());
     const act = await checkActivity();   // other bosses and trash on the timeline
+    if (await refreshFlags('sszorak')) changed = true;   // pulls flagged with bad data
     if (changed) applyView(); else if (act) renderTimeline();
   } catch (e) { SITE.err = SITE.index ? 'Could not refresh the nights list; trying again in a few seconds.' : null; }
   finally { setLiveStatus(); }
@@ -1227,7 +1227,7 @@ function ago(ms){ const s = Math.round((Date.now() - ms) / 1000); return s < 60 
 function pullLabel(p){
   const m = Math.floor(p.dur / 60), s = String(Math.floor(p.dur % 60)).padStart(2, '0');
   const res = p.live ? 'in progress' : p.kill ? 'kill' : p.hp != null ? `wipe at ${(p.hp * 100).toFixed(1)}%` : 'wipe';
-  return `Pull ${p.n} · ${SITE.view === 'all' && p.date ? dayDate(p.date) + ' ' : ''}${pullTime(p.date, p.clock, p.tz)} · ${m}:${s} · ${res}`;
+  return `Pull ${p.n} · ${SITE.view === 'all' && p.date ? dayDate(p.date) + ' ' : ''}${pullTime(p.date, p.clock, p.tz)} · ${m}:${s} · ${res}${flagTag(p.fk)}`;
 }
 function setLiveStatus(){
   const dot = $('liveDot'), t = $('liveText'), D = SITE.data;
@@ -1283,8 +1283,8 @@ const H = {pname: n => `<span class="pn" style="--cc:${classHex(n)}">${esc(n)}</
 // avoidable hits (uploader's AVOID_S); Ravage doesn't count on tanks
 const AVOID_ORDER = ['Tempest', 'Ravage', 'Caustic Claws', 'Caustic Residue', 'Raging Crosswinds burst', 'To the Slaughter'];
 const AVOID_SHORT = {'Tempest': 'Tempest', 'Ravage': 'Ravage', 'Caustic Claws': 'Claws', 'Caustic Residue': 'Residue', 'Raging Crosswinds burst': 'Winds', 'To the Slaughter': 'Charge'};
-const BST = {avoid: DEF_SCOPE, heal: DEF_SCOPE, disp: DEF_SCOPE, deaths: DEF_SCOPE, mut: DEF_SCOPE, cross: DEF_SCOPE};
-const BSEL = {avoid: 'avoidPull', heal: 'healPull', disp: 'dispPull', deaths: 'deathPull', mut: 'mutPull', cross: 'crossPull'};
+const BST = {avoid: DEF_SCOPE, heal: DEF_SCOPE, disp: DEF_SCOPE, deaths: DEF_SCOPE};
+const BSEL = {avoid: 'avoidPull', heal: 'healPull', disp: 'dispPull', deaths: 'deathPull'};
 function renderStd(){
   const pulls = (SITE.data && SITE.data.pulls) || [];
   Object.entries(BSEL).forEach(([k, id]) => { const sel = $(id), opts = pullOpts(pulls, `All ${pulls.length} pulls`);
@@ -1293,80 +1293,30 @@ function renderStd(){
   const L = k => pickPulls(pulls, BST[k]);
   drawAvoid($('avoidT'), L('avoid').flatMap(p => (p.avoid || []).filter(h => !(h[2] === 'Ravage' && info(h[1])[2] === 'tank'))), AVOID_ORDER, AVOID_SHORT, H);
   drawHealing($('heal'), L('heal'), H); drawDispels($('disp'), L('disp'), H); drawDeaths($('deaths'), L('deaths'), H);
-  renderMut(L('mut'), pulls); renderCross(L('cross')); sortStd(); syncPullSegs();
+  sortStd(); syncPullSegs();
 }
 
-// ---- Mutilate (Apex Predator's raid cone, aimed at the tank): two soak groups take turns. Groups are INFERRED (Taylor
-// 2026-11-02): each Mutilate's side = Left / Right of the line from the platform's middle out to the boss (as if facing away
-// from the middle), from where its soakers stood; each player's group = the side they soaked most that night, or that pull
-// when they soaked 3+ times there with 2 in 3 on one side (a group change mid-night). Soaked twice = hit while the last
-// Mutilate's Mutilated Gash was still on them. Tanks don't count ----
-const isTankN = (n, p) => (SPECS[p && p.nspecs && p.nspecs[n]] || info(n))[2] === 'tank';   // that night's spec: some tank only some nights
-const aliveAt = (p, n, t) => !(p.deaths || []).some(d => d[1] === n && d[0] < t);
-const MUT_LAND = 3, MUT_MIN = 5, SIDE = {L: 'Left', R: 'Right'};   // the cone lands 3 s after the cast starts; under 5 soakers is lethal
-function mutSide(m, p){
-  const ps = (m[2] || []).filter((q, i) => q && !isTankN(m[1][i], p)), b = m[3]; if (!ps.length || !b) return null;
-  const s = [ps.reduce((a, q) => a + q[0], 0) / ps.length, ps.reduce((a, q) => a + q[1], 0) / ps.length];
-  const E = q => [-(q[1] - MAP.cy), q[0] - MAP.cx];   // world -> east, north from the platform's middle
-  const f = E(b), v = E(s); return f[0] * v[1] - f[1] * v[0] > 0 ? 'L' : 'R';
-}
-function mutGroups(pulls){   // pull key -> {player: 'L' | 'R'}
-  const night = {}, out = {}, tally = (o, n, s) => { const c = (o[n] ||= {L: 0, R: 0}); c[s]++; };
-  const each = (p, fn) => (p.mut || []).forEach(m => { const s = mutSide(m, p); if (s) fn(m, s); });
-  pulls.forEach(p => { const N = (night[p.key.split('#')[0]] ||= {}); each(p, (m, s) => m[1].forEach(n => { if (!isTankN(n, p)) tally(N, n, s); })); });
-  const pick = c => !c || c.L === c.R ? null : c.L > c.R ? 'L' : 'R';
-  pulls.forEach(p => { const N = night[p.key.split('#')[0]] || {}, P = {}, G = {};
-    each(p, (m, s) => m[1].forEach(n => { if (!isTankN(n, p)) tally(P, n, s); }));
-    Object.keys(N).forEach(n => { const c = P[n], tot = c ? c.L + c.R : 0;
-      const g = tot >= 3 && Math.max(c.L, c.R) >= tot * 2 / 3 ? pick(c) : pick(N[n]); if (g) G[n] = g; });
-    out[p.key] = G; });
-  return out;
-}
-function mutRows(p, G){   // per Mutilate: {t, side, hit, few, twice, wrong, missed}
-  const gash = (p.hau || []).filter(h => h[0] === 'gash'), who = Object.keys(p.dmg || {});
-  return (p.mut || []).map(m => { const [t, hit] = m, at = t + MUT_LAND, soak = hit.filter(n => !isTankN(n, p)), side = mutSide(m, p);
-    const twice = soak.filter(n => gash.some(g => g[1] === n && g[2] < at - 0.5 && (g[3] == null || g[3] > at - 0.2)));
-    return {t, side, hit, few: hit.length < MUT_MIN, twice,
-      wrong: side ? soak.filter(n => G[n] && G[n] !== side) : [],
-      missed: side ? who.filter(n => G[n] === side && !hit.includes(n) && !isTankN(n, p) && aliveAt(p, n, at)) : []}; });
-}
-const pnameS = n => H.pname(n), pnames = ns => ns.length ? ns.map(pnameS).join(', ') : '<span class="z">–</span>';
-function renderMut(list, all){
-  const GS = mutGroups(all);
-  if (list.length === 1){
-    const p = list[0], rows = mutRows(p, GS[p.key] || {}).flatMap(m => { const g = m.side ? SIDE[m.side] : '?'; return [
-      ...(m.few ? [[m.t, `Only ${m.hit.length} soaked`, m.hit]] : []),
-      ...(m.twice.length ? [[m.t, 'Soaked twice', m.twice]] : []),
-      ...(m.wrong.length ? [[m.t, `Not in the ${g} group`, m.wrong]] : []),
-      ...(m.missed.length ? [[m.t, `Missed the ${g} group's soak`, m.missed]] : [])]; });
-    $('mutT').innerHTML = `<tr><th>Time</th><th class="l">What</th><th class="l w">Who</th></tr>` +
-      rows.map(([t, w, ns]) => `<tr><td class="n" data-v="${t}">${mss(t)}</td><td class="l">${w}</td><td class="l w" style="white-space:normal">${pnames(ns)}</td></tr>`).join('');
-  } else {
-    const P = {}, r = n => (P[n] ||= {n, twice: 0, wrong: 0, missed: 0, g: null}); let few = 0, casts = 0;
-    list.forEach(p => { const G = GS[p.key] || {}; Object.entries(G).forEach(([n, g]) => { if (g) r(n).g = g; });
-      mutRows(p, G).forEach(m => { casts++; if (m.few) few++; m.twice.forEach(n => r(n).twice++); m.wrong.forEach(n => r(n).wrong++); m.missed.forEach(n => r(n).missed++); }); });
-    const rows = Object.values(P).sort((a, b) => (b.twice + b.wrong + b.missed) - (a.twice + a.wrong + a.missed) || (a.g || 'Z').localeCompare(b.g || 'Z') || a.n.localeCompare(b.n));
-    const c = v => `<td class="n${v ? ' bad' : ' z'}">${v}</td>`;
-    $('mutT').innerHTML = `<tr><th class="l">Player</th><th class="l">Group</th><th>Soaked twice</th><th>Wrong group</th><th>Missed their group's</th></tr>` +
-      rows.map(x => `<tr><td class="l">${pnameS(x.n)}</td><td class="l${x.g ? '' : ' z'}">${x.g ? SIDE[x.g] : '–'}</td>${c(x.twice)}${c(x.wrong)}${c(x.missed)}</tr>`).join('') +
-      (few ? `<tr><td class="l z" colspan="5">${few} of ${casts} Mutilates had fewer than ${MUT_MIN} soakers.</td></tr>` : '');
-  }
-  $('mutNote').innerHTML = `The Left and Right groups take turns soaking (5 or more each); tanks don't count. Left / Right = which side of the boss the group stood, looking out from the middle of the platform. Groups are worked out from where everyone soaked that night (or that pull, when someone switched). <b>Soaked twice</b>: hit while the last Mutilate's Mutilated Gash was still on them.`;
-}
-// ---- Raging Crosswinds card: how many arrows each player had and how many times they died from one (in the air or within
-// 3 s of coming down). Where each set flew is on the map (Crosswinds) ----
-function renderCross(list){
+const pnameS = n => H.pname(n);
+// ---- Raging Crosswinds card (beside the map, same pulls as the map): per player, the arrows of the chosen set (All, 1st, 2nd...
+// of each pull), average time in the air and deaths (in the air or within 3 s of landing). The map shows the same set ----
+function renderCross(){
+  const all = crossSets(), most = Math.max(0, ...all.map(s => s.k));
+  if (st.xset !== 'all' && st.xset > most) st.xset = 'all';
+  const ord = k => k + (k % 10 === 1 && k !== 11 ? 'st' : k % 10 === 2 && k !== 12 ? 'nd' : k % 10 === 3 && k !== 13 ? 'rd' : 'th');
+  const btns = [['all', 'All'], ...Array.from({length: most}, (_, i) => [i + 1, ord(i + 1)])].map(([v, l]) =>
+    `<button type="button" data-v="${v}" aria-pressed="${String(st.xset === v)}">${l}</button>`).join('');
+  $('xsetSeg').innerHTML = btns; $('xsetSegMap').innerHTML = btns;   // the same buttons on the card and under the map
   const P = {};
-  list.forEach(p => crossRowsOf(p).forEach(r => { const x = (P[r.n] ||= {n: r.n, arrows: 0, died: 0}); x.arrows++; if (r.died) x.died++; }));
-  const rows = Object.values(P).sort((a, b) => b.died - a.died || b.arrows - a.arrows || a.n.localeCompare(b.n));
-  $('crossT').innerHTML = `<tr><th class="l">Player</th><th>Arrows</th><th>Deaths</th></tr>` +
-    rows.map(x => `<tr><td class="l">${pnameS(x.n)}</td><td class="n">${x.arrows}</td><td class="n${x.died ? ' bad' : ' z'}">${x.died}</td></tr>`).join('');
+  shownSets().forEach(s => s.rows.forEach(r => { const x = (P[r.n] ||= {n: r.n, k: 0, air: [], died: 0}); x.k++; if (r.air != null) x.air.push(r.air); if (r.died) x.died++; }));
+  const rows = Object.values(P).sort((a, b) => b.died - a.died || b.k - a.k || a.n.localeCompare(b.n));
+  $('crossT').innerHTML = `<tr><th class="l">Player</th><th>Arrows</th><th>In the air</th><th>Deaths</th></tr>` + rows.map(x =>
+    `<tr data-n="${esc(x.n)}"${x.n === st.sel ? ' class="sel"' : ''}><td class="l">${pnameS(x.n)}</td><td class="n">${x.k}</td>` +
+    `<td class="n" data-v="${x.air.length ? x.air.reduce((a, b) => a + b, 0) / x.air.length : ''}">${x.air.length ? (x.air.reduce((a, b) => a + b, 0) / x.air.length).toFixed(1) + ' s' : '–'}</td>` +
+    `<td class="n${x.died ? ' bad' : ' z'}">${x.died}</td></tr>`).join('');
+  sortStd();
 }
-function crossRowsOf(p){
-  const H = p.hau || [], gusts = H.filter(h => h[0] === 'gust' && h[3] != null);
-  return H.filter(h => h[0] === 'cross').map(a => { const g = a[3] != null && gusts.find(x => x[1] === a[1] && Math.abs(x[2] - a[3]) < 0.5), end = g ? g[3] : a[3];
-    return {n: a[1], died: end != null && (p.deaths || []).some(d => d[1] === a[1] && d[0] >= a[2] && d[0] <= end + 3)}; });
-}
+['xsetSeg', 'xsetSegMap'].forEach(id => $(id).addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (!b) return; st.xset = b.dataset.v === 'all' ? 'all' : +b.dataset.v; render(); }));
+$('crossT').addEventListener('click', e => { const tr = e.target.closest('tr[data-n]'); if (tr && !e.target.closest('th')) pick(tr.dataset.n); });
 Object.entries(BSEL).forEach(([k, id]) => { $(id).onchange = e => { BST[k] = e.target.value; renderStd(); }; });
 // ---- a Latest / Overall switch beside each pull dropdown, like the other pages ----
 ['mapPull', 'dmgPull', 'tmpPull', ...Object.values(BSEL)].forEach(id => { const sel = $(id), ctl = document.createElement('div'), seg = document.createElement('div');

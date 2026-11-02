@@ -18,13 +18,6 @@ const contacts = (p, ability, gap = 2) => { const last = {}, out = [];
 // orbs: where each carrier dropped theirs (Volatile Venom ended there), for the map
 const orbDrops = p => auras(p, 'Volatile Venom').filter(a => a[2] != null && a[6]);
 const severs = p => ['Sever', 'Soul Sever', 'Blighted Sever'].flatMap(s => contacts(p, s, 8).filter(h => !isTankIn(p, h[1])).map(h => ({t: h[0], n: h[1], s})));   // the DoT ticks count once
-// Guillotine: the axe lands on the target and splits between everyone within 9 yd: 5+ soakers, or Execution hits everyone
-const guillotines = p => [...auras(p, '#1283485').map(a => ({t: a[1], n: a[0], grim: false})), ...auras(p, '#1299266').map(a => ({t: a[1], n: a[0], grim: true}))]
-  .sort((a, b) => a.t - b.t).map(g => { const land = pulsesOf(p, g.grim ? '#1299296' : '#1283594').find(x => x[0] > g.t && x[0] < g.t + 8);
-    const soak = land ? land[1] : [], gd = auras(p, g.grim ? '#1307652' : '#1307425');
-    return Object.assign(g, {land: land ? land[0] : null, soak, again: soak.filter(n => gd.some(a => a[0] === n && a[1] < (land[0] - 1) && (a[2] == null || a[2] > land[0]))),
-      exec: [...pulsesOf(p, 'Execution'), ...pulsesOf(p, 'Grim Execution')].some(x => land && Math.abs(x[0] - land[0]) < 2),
-      kiss: [...new Set([...hitsOf(p, "Widow's Kiss"), ...hitsOf(p, "Death's Embrace")].filter(h => land && h[0] > land[0] && h[0] < land[0] + 10).map(h => h[1]))]}); });
 const fangs = p => auras(p, 'Venomfang').map(a => ({n: a[0], t: a[1], s: (a[2] != null ? a[2] : p.dur) - a[1],
   by: (p.dispels.find(d => d[2] === a[0] && d[3] === 'Venomfang' && Math.abs(d[0] - (a[2] || 0)) < 0.4) || [])[1] || null}));
 // Dreadmarch: Malacrass's cast possesses several players; one that doesn't follow a cast is a Manifestation of Dread reaching
@@ -61,16 +54,6 @@ const CFG = {
   ],
   hitNames: {'#1297906': 'Gravebound ran out', '#1283594': 'Guillotine soak', '#1299296': 'Grim Guillotine soak'},
   modules: [
-    {id: 'guil', title: 'Guillotine',
-     one: p => ({head: ['Time', ['Target', 'l'], 'Soakers', ['What went wrong', 'l']], rows: guillotines(p).map(g => Object.assign(g, {kissBad: p.diff === 16 ? g.kiss : []}))
-       .filter(g => g.exec || g.again.length || g.kissBad.length).map(g =>
-       [T(g.t), P(g.n), N(g.soak.length, g.exec ? 'bad' : ''), X([g.exec ? '<b class="bad">Execution: fewer than 5 soaked</b>' : '', g.again.length ? `soaked while Guillotined: ${g.again.map(pname).join(', ')}` : '',
-         g.kissBad.length ? `too close when it erupted: ${g.kissBad.map(pname).join(', ')}` : ''].filter(Boolean).join(' · '), 'det')])}),
-     all: list => perPlayer(list, [{h: 'Soaked while Guillotined', get: p => guillotines(p).flatMap(g => g.again.map(n => ({n, t: g.land})))},
-       ...(list.some(p => p.diff === 16) ? [{h: 'Too close when it erupted', get: p => p.diff === 16 ? guillotines(p).flatMap(g => g.kiss.map(n => ({n, t: g.land}))) : []}] : [])]),
-     foot: list => { const e = list.reduce((a, p) => a + guillotines(p).filter(g => g.exec).length, 0); return e ? `<b style="color:var(--crit)">${e} Execution${e === 1 ? '' : 's'} (fewer than 5 in the soak).</b>` : ''; },
-     note: "At least 5 in each soak, and soakers sit the next one out while Guillotined. On Mythic everyone also gets out before Death's Embrace erupts (on Heroic you stand in Widow's Kiss)."},
-
     {id: 'sever', title: 'Sever frontals',
      one: p => ({head: ['Time', ['Hit', 'l'], ['Frontal', 'l']], rows: severs(p).sort((a, b) => a.t - b.t).map(x => [T(x.t), P(x.n), `<td class="l">${esc(x.s)}</td>`])}),
      all: list => perPlayer(list, [{h: 'Hit by a frontal', get: p => severs(p).map(x => ({n: x.n, t: x.t}))}]),

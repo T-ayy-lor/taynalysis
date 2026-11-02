@@ -184,9 +184,10 @@ function nights(){
   ns.forEach(n => {   // every pull of the night, in clock order, across the night's logs
     n.pulls = [];
     n.entries.forEach(e => { const D = SITE.files[e.file]; if (!D) return; Object.assign(SPEC_OF, D.specs || {});
-      (D.pulls || []).forEach(p => n.pulls.push(Object.assign({}, p, {night: n.date, nk: n.key, key: e.file + '#' + p.n, tz: D.tz}))); });
+      (D.pulls || []).forEach(p => n.pulls.push(Object.assign({}, p, {night: n.date, nk: n.key, key: e.file + '#' + p.n, fk: flagKey(D, p), tz: D.tz}))); });
     n.pulls.sort((a, b) => a.clock.localeCompare(b.clock));
     const c = {}; n.pulls.forEach(p => { p.seq = c[p.diff] = (c[p.diff] || 0) + 1; });   // numbered within each difficulty
+    n.pulls = n.pulls.filter(p => showPull(p.fk));   // flagged pulls (bad data) are hidden, after numbering, for all but the editor
   });
   return ns;
 }
@@ -208,6 +209,7 @@ async function checkSite(){
     if (!SITE.index) SITE.index = {nights: []};
   }
   if (await checkActivity()) changed = true;
+  if (await refreshFlags(CFG.slug)) changed = true;   // pulls flagged with bad data
   if (!changed && SITE.err === err0) return;
   render();
 }
@@ -216,7 +218,8 @@ const byRoster = (a, b) => rosterIdx(a) - rosterIdx(b) || a.localeCompare(b);
 const present = p => [...new Set([...Object.keys(p.dmg || {}), ...Object.keys(p.heal || {}), ...p.deaths.map(d => d[1])])];
 const people = list => [...new Set(list.flatMap(present))].sort(byRoster);
 const hpText = p => Object.entries(p.hp || {}).map(([b, v]) => `${b} ${pct(v)}`).join(' · ');
-const pullLabel = (p, all) => `${all ? dayDate(p.night) + ' · ' : ''}Pull ${p.seq} · ${pullTime(p.date, p.clock, p.tz)} · ${mss(p.dur)} · ${p.live ? 'in progress' : p.kill ? 'kill' : 'wipe'}` +
+const pullLabel = (p, all) => pullLabel0(p, all) + flagTag(p.fk);
+const pullLabel0 = (p, all) => `${all ? dayDate(p.night) + ' · ' : ''}Pull ${p.seq} · ${pullTime(p.date, p.clock, p.tz)} · ${mss(p.dur)} · ${p.live ? 'in progress' : p.kill ? 'kill' : 'wipe'}` +
   (p.kill || !hpText(p) ? '' : ' · ' + hpText(p));
 const inc = (o, k, v = 1) => { o[k] = (o[k] || 0) + v; };
 const cell = (v, cls, fmt) => `<td class="num${v ? (cls ? ' ' + cls : '') : ' dim'}">${fmt ? fmt(v) : v}</td>`;
@@ -350,6 +353,7 @@ function render(){
     const sg = document.querySelector(`.seg.mini[data-s="${k}"]`);
     if (sg) sg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === st.scope[k])));
     L[k] = st.scope[k] === 'all' ? viewAll : st.scope[k] === 'latest' ? (latest ? [latest] : []) : viewAll.filter(p => p.key === st.scope[k]); });
+  flagIcons(CFG.slug, [...document.querySelectorAll('select.scope')], el => { const p = viewAll.find(p => p.key === el.value); return p ? p.fk : null; }, render);   // admin: ⚑ beside each pull dropdown
   $('sub').textContent = '';
   renderTimeline(ns);
   renderMap(L.map, L.map.length > 1);

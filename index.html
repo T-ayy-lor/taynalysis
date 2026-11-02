@@ -104,11 +104,30 @@ function checkData(id){
   const dirs = ['activity', ...BOSSES.filter(b => b.page).map(b => b.id)];
   Promise.all(dirs.map(d => fetch(`data/${id}/${TIER}/${d}/nights.json?t=${Date.now()}`, {cache: 'no-store'})
     .then(r => r.ok ? r.json() : null).then(j => j && j.nights || []).catch(() => [])))
-    .then(r => { IDX[id] = Object.fromEntries(dirs.map((d, i) => [d, r[i]])); hasData[id] = r.some(n => n.length);
+    .then(async r => { IDX[id] = Object.fromEntries(dirs.map((d, i) => [d, r[i]])); hasData[id] = r.some(n => n.length);
+      await Promise.all(dirs.filter(d => d !== 'activity').map(d => dropFlagged(id, d)));
       // no data: the team can't be picked in the dropdown either (and a link to it lands on "choose your team")
       const o = [...sel.options].find(x => x.value === id);
       if (o && !hasData[id]){ o.disabled = true; o.text = teamById(id).name.toLowerCase() + ' (no data yet)'; }
       if (sel.value === id) hasData[id] ? useTeam(id, false) : useTeam('', true); });
+}
+// pulls flagged with bad data (a boss page's flag control, groups-flags.json) are left out of the counts here too (Taylor
+// 2026-11-02): each night holding one is loaded and its pulls / kills / best health per difficulty counted again without it
+async function dropFlagged(id, boss){
+  let flags = {};
+  try { const r = await fetch(`data/${id}/${TIER}/${boss}/groups-flags.json?t=${Date.now()}`, {cache: 'no-store'}); if (r.ok) flags = (await r.json()).flags || {}; } catch (e) {}
+  const hidden = isEditor() ? [] : Object.keys(flags); if (!hidden.length) return;   // the editor sees them, like on the boss pages
+  await Promise.all((IDX[id][boss] || []).filter(e => hidden.some(fk => fk.startsWith(e.log + '#'))).map(async e => {
+    try {
+      const r = await fetch(`${e.file}?t=${Date.now()}`, {cache: 'no-store'}); if (!r.ok) return;
+      const D = await r.json(), keep = (D.pulls || []).filter(p => !hidden.includes(flagKey(D, p))), by = {};
+      // same as the uploader's night_entry: lowest boss health on a wipe (pages with two bosses: the higher of the two)
+      const hp = p => p.hp && typeof p.hp === 'object' ? (Object.keys(p.hp).length ? Math.max(...Object.values(p.hp)) : null) : p.hp;
+      keep.forEach(p => { const s = (by[p.diff] ||= {pulls: 0, kills: 0, best: null}); s.pulls++; if (p.kill) s.kills++;
+        const h = hp(p); if (!p.kill && typeof h === 'number' && (s.best == null || h < s.best)) s.best = h; });
+      e.byDiff = by;
+    } catch (err) {}
+  }));
 }
 // ---- difficulty: picked here, carried to the boss pages in the address; one with no pulls on an open boss can't be picked ----
 const DN = {14: 'Normal', 15: 'Heroic', 16: 'Mythic'}, dseg = $('diffSeg');

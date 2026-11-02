@@ -333,7 +333,7 @@ details.setup summary span{color:var(--muted);font-weight:400}
     <div class="ph"><h2>Ravenous Feast soaks</h2><select class="scope" data-s="feast" aria-label="Pulls to show"></select></div>
     <div class="tw"><table id="feast"></table></div>
     <div id="feastEd"></div>
-    <p class="note">Slam 1 is group 1's, slam 2 group 2's, slam 3 group 3's. <b>Correct</b>: soaked your group's slam and the Tainted Blood in the same Ravenous Feast. <b>Wrong group</b>: soaked another group's slam. <b>Missed</b>: didn't soak your group's slam, or soaked it but not the Tainted Blood. Dead players aren't counted. Groups come from the NSRT raid note (the uploader records each one the moment the raid leader pushes it) or Edit groups under the table; each pull is scored with the groups in force when it started, so a change never rewrites earlier pulls. Pulls from before the raid note was being picked up are scored with groups worked out from who soaked which slam that night.</p>
+    <p class="note">Slam 1 is group 1's, slam 2 group 2's, slam 3 group 3's. <b>Correct</b>: soaked your group's slam and the Tainted Blood in the same Ravenous Feast. <b>Wrong group</b>: soaked another group's slam. <b>Missed</b>: didn't soak your group's slam, or soaked it but not the Tainted Blood. Dead players aren't counted. Groups are set under the table (Edit groups); each pull is scored with the groups set before it started, so a change never rewrites earlier pulls. Pulls from before any were set are scored with groups worked out from who soaked which slam that night.</p>
   </div>
 
   <div class="bottom">
@@ -354,7 +354,7 @@ details.setup summary span{color:var(--muted);font-weight:400}
 
   <div class="panel">
     <h2>How this is measured</h2>
-    <p class="note">The same uploader that feeds the Sszorak page reads the combat log for any boss pull with Vexhul or Ithraz in it. <b>Eternal Venom</b>: each new stack is matched to what hit that player in the second around it; Caustic Globule, Venomous Emergence and Corrosive Spit are fine, anything else is unnecessary. <b>Globules</b>: each one belongs to the Caustic Deluge cast before it spawned; a soak is being hit by its rupture. <b>Coiling Ichor</b>: where the player stood when the debuff came off. <b>Quadrants</b>: from where each Broodling was when it cast, relative to the bosses and the middle of the raid. Spell IDs come from the Encounter Journal and the map isn't calibrated yet, so expect adjustments after the first real pulls. Healing includes absorbs and leaves out overhealing. Early deaths are the first 3 deaths of each pull. Kick order and soak groups come from the raid note (the uploader's notechange command).</p>
+    <p class="note">The same uploader that feeds the Sszorak page reads the combat log for any boss pull with Vexhul or Ithraz in it. <b>Eternal Venom</b>: each new stack is matched to what hit that player in the second around it; Caustic Globule, Venomous Emergence and Corrosive Spit are fine, anything else is unnecessary. <b>Globules</b>: each one belongs to the Caustic Deluge cast before it spawned; a soak is being hit by its rupture. <b>Coiling Ichor</b>: where the player stood when the debuff came off. <b>Quadrants</b>: from where each Broodling was when it cast, relative to the bosses and the middle of the raid. Spell IDs come from the Encounter Journal and the map isn't calibrated yet, so expect adjustments after the first real pulls. Healing includes absorbs and leaves out overhealing. Early deaths are the first 3 deaths of each pull. Kick order and soak groups are set on this page (Edit kick order, Edit groups); before any were set, the kick order is the one in setup.txt and soak groups are worked out from who soaked which slam.</p>
   </div>
 </div>
 
@@ -406,9 +406,10 @@ function nights(){
   ns.forEach(n => {   // every pull of the night, in clock order, across the night's logs
     n.pulls = [];
     n.entries.forEach(e => { const D = SITE.files[e.file]; if (!D) return; Object.assign(SPEC_OF, D.specs || {});
-      (D.pulls || []).forEach(p => n.pulls.push(Object.assign({}, p, {night: n.date, nk: n.key, key: e.file + '#' + p.n, tz: D.tz}))); });
+      (D.pulls || []).forEach(p => n.pulls.push(Object.assign({}, p, {night: n.date, nk: n.key, key: e.file + '#' + p.n, fk: flagKey(D, p), tz: D.tz}))); });
     n.pulls.sort((a, b) => a.clock.localeCompare(b.clock));
     const c = {}; n.pulls.forEach(p => { p.seq = c[p.diff] = (c[p.diff] || 0) + 1; });   // numbered within each difficulty, like the Sszorak page
+    n.pulls = n.pulls.filter(p => showPull(p.fk));   // flagged pulls (bad data) are hidden, after numbering, for all but the editor
   });
   return ns;
 }
@@ -432,20 +433,19 @@ async function checkSite(){
   try { const r = await fetch(dataDir('twin-fangs') + 'setup.txt?t=' + Date.now(), {cache: 'no-store'}); if (r.ok){ const t = await r.text(); if (t !== SETUP.text){ SETUP.text = t; changed = true; } } } catch (e) {}
   for (const set of ['feast', 'kicks']){ const g = await loadGroups('twin-fangs', set); if (JSON.stringify(g) !== JSON.stringify(GROUPS[set])){ GROUPS[set] = g; changed = true; } }
   if (await checkActivity()) changed = true;
+  if (await refreshFlags('twin-fangs')) changed = true;   // pulls flagged with bad data
   if (!changed && SITE.err === err0) return;
   renderSetup();   // also re-checks names against anyone new in the logs
   render();
 }
 
-// ---- setup: kicker priority and soak groups, from <team data folder>/twin-fangs/setup.txt (the uploader's notechange fills it) ----
+// ---- setup: kicker priority and soak groups from <team data folder>/twin-fangs/setup.txt: the kick order for pulls before any was set on this page ----
 const QUADS = [['ml', 'Melee left'], ['fm', 'Front melee'], ['mr', 'Melee right'], ['rl', 'Ranged left'], ['rr', 'Ranged right']];
 const SETUP = {site: null, text: null, warn: []};
 const blankSetup = () => ({kick: {ml: [], fm: [], mr: [], rl: [], rr: []}, backup: [], feast: {}});
 const setup = () => SETUP.site || blankSetup();
-// groups per pull (Taylor 2026-11-02: "infer groups for preexisting data ... live data from the NSRT notes"): live, the
-// uploader writes each NSRT raid note the moment the raid leader pushes it into groups-feast.json / groups-kicks.json (via the
-// TaynalysisNotes addon and WoW's chat log); Edit groups on this page adds corrections. A pull uses the last change before it
-// started. Pulls before any change: feast groups are INFERRED from what players did (the slam each player soaked that night,
+// groups per pull (Taylor 2026-11-02: set them himself, no raid note): Edit groups / Edit kick order on this page save
+// groups-feast.json / groups-kicks.json on the server (editor key). A pull uses the last change before it started. Pulls before any change: feast groups are INFERRED from what players did (the slam each player soaked that night,
 // or that pull when someone soaked 3+ slams there with 2 in 3 on one, i.e. switched groups); the kick order is NEVER inferred
 // (Taylor 2026-11-02): it's setup.txt's.
 const GROUPS = {feast: null, kicks: null};
@@ -524,7 +524,8 @@ const srcName = s => SRC_NAME[s] || s;
 const byRoster = (a, b) => rosterIdx(a) - rosterIdx(b) || a.localeCompare(b);
 const people = list => list.length ? [...new Set(list.flatMap(p => present(p)))].sort(byRoster) : TEAM_ROSTER.map(r => r[0]);
 const present = p => { const s = new Set([...Object.keys(p.dmg || {}), ...Object.keys(p.heal || {}), ...p.deaths.map(d => d[1])]); return [...s]; };
-const pullLabel = (p, all) => `${all ? dayDate(p.night) + ' · ' : ''}Pull ${p.seq} · ${pullTime(p.date, p.clock, p.tz)} · ${mss(p.dur)} · ${p.live ? 'in progress' : p.kill ? 'kill' : 'wipe'}` +
+const pullLabel = (p, all) => pullLabel0(p, all) + flagTag(p.fk);
+const pullLabel0 = (p, all) => `${all ? dayDate(p.night) + ' · ' : ''}Pull ${p.seq} · ${pullTime(p.date, p.clock, p.tz)} · ${mss(p.dur)} · ${p.live ? 'in progress' : p.kill ? 'kill' : 'wipe'}` +
   (p.kill || !p.hp ? '' : ' · ' + Object.entries(p.hp).map(([b, v]) => `${b} ${pct(v)}`).join(', '));
 
 // quadrant of a Broodling: melee if within QUAD_CFG.meleeYd of a boss; left/right of the line from the middle of the raid to the bosses
@@ -857,6 +858,7 @@ function render(){
     const sg = document.querySelector(`.seg.mini[data-s="${k}"]`);
     if (sg) sg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === st.scope[k])));
     L[k] = st.scope[k] === 'all' ? viewAll : st.scope[k] === 'latest' ? (latest ? [latest] : []) : viewAll.filter(p => p.key === st.scope[k]); });
+  flagIcons('twin-fangs', [...document.querySelectorAll('select.scope')], el => { const p = viewAll.find(p => p.key === el.value); return p ? p.fk : null; }, render);   // admin: ⚑ beside each pull dropdown
   $('sub').textContent = '';
   renderTimeline(ns);
   renderMap(viewAll, L.map, L.map.length > 1); renderVenom(L.venom, all);
