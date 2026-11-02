@@ -300,12 +300,13 @@ const H = {pname, order: byRoster, healer: n => role(n) === 'Healer', people, co
 
 // ---- ability tooltips: ability names link to Wowhead, whose tooltip script shows the in-game ability text on hover ----
 const ABILITY = CFG.abilities || {};
+autoLink(ABILITY);   // shared.js: every ability name anywhere on the page, card titles too
 const AB_RE = Object.keys(ABILITY).length ? new RegExp('(^|[^\\w])(' + Object.keys(ABILITY).sort((a, b) => b.length - a.length).map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s')).join('|') + ')(?![\\w])', 'g') : null;
 function linkify(root){
   if (!AB_RE) return;
   const test = new RegExp(AB_RE.source);   // no 'g' flag: test() keeps no state between nodes
   const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
-    n.parentElement.closest('a, select, option, script, style, svg, .tip, button, input, th, .key, h2') ? NodeFilter.FILTER_REJECT : test.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP});
+    n.parentElement.closest('a, select, option, script, style, svg, .tip, button, input, th, .key, h2, .wowhead-tooltip, [class*="wowhead"]') ? NodeFilter.FILTER_REJECT : test.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP});
   const nodes = []; while (walk.nextNode()) nodes.push(walk.currentNode);
   nodes.forEach(n => {
     const frag = document.createDocumentFragment(); let last = 0; const txt = n.nodeValue;

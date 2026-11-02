@@ -1297,6 +1297,12 @@ function renderStd(){
 }
 
 const pnameS = n => H.pname(n);
+// in-game tooltips on every ability name on the page, card titles too (shared.js autoLink); ids from Taylor's logs
+const ABILITY = {'Virulence': 1297707, 'Venomous Surge': 1305959, 'Raging Crosswinds': 1285425, 'Crosswinds': 1285425,
+  'Raging Crosswinds burst': 1285616, 'Turbulent Gusts': 1285447, 'Tempest': 1287083, 'Ravage': 1277101, 'Ravaged': 1299405,
+  'Caustic Claws': 1305998, 'Caustic Residue': 1296667, 'To the Slaughter': 1299592, 'Viscous Cyst': 1287205, 'Dig In': 1286033,
+  'Mutilate': 1277027, 'Mutilated Gash': 1277051, 'Corroding Venom': 1282873};
+autoLink(ABILITY);
 // ---- Raging Crosswinds card (beside the map, same pulls as the map): per player, the arrows of the chosen set (All, 1st, 2nd...
 // of each pull), average time in the air and deaths (in the air or within 3 s of landing). The map shows the same set ----
 function renderCross(){

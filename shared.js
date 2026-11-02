@@ -125,7 +125,34 @@ function fitPairs(){
 // link (Wowhead's script shows its tooltip on hover); clicking it still presses the button / sorts the column ----
 const whLink = (id, text) => id ? `<a class="ab" href="https://www.wowhead.com/spell=${id}" data-wowhead="spell=${id}" target="_blank" rel="noopener">${text}</a>` : text;
 const whRefresh = () => { try { if (window.$WowheadPower && $WowheadPower.refreshLinks) $WowheadPower.refreshLinks(); } catch (e) {} };
-document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a.ab'); if (a && a.closest('button, th')) e.preventDefault(); }, true);
+document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a.ab'); if (a && a.closest('button, th, h2, h3, summary, label')) e.preventDefault(); }, true);
+// EVERY ability name on a boss page gets its in-game tooltip (Taylor 2026-11-02: "EVERY mention of ANY ability name ... this
+// includes card titles"): autoLink(page's {name: spell id}) wraps each name in text anywhere on the page (card titles,
+// headings, buttons, tables, notes) as a Wowhead link, and again whenever the page redraws. Skips player names, dropdowns,
+// links and the map. A click on a name inside a button, heading or title still does what the button / heading does.
+function autoLink(map){
+  const keys = Object.keys(map || {}).filter(k => map[k]).sort((a, b) => b.length - a.length);
+  if (!keys.length) return;
+  const re = new RegExp('(^|[^\\w])(' + keys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s')).join('|') + ')(?![\\w])', 'g');
+  const test = new RegExp(re.source), SKIP = 'a, select, option, script, style, svg, canvas, input, textarea, .tip, .pn, [contenteditable], .wowhead-tooltip, [class*="wowhead"], [id^="wowhead"]';
+  // never inside Wowhead's own tooltip box: linking names in there and refreshing Wowhead's links closed each tooltip the
+  // moment it opened (Taylor 2026-11-02: hovering showed nothing)
+  let busy = false, queued = false;
+  const run = () => { queued = false; busy = true;
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {acceptNode: n =>
+      !n.parentElement || n.parentElement.closest(SKIP) ? NodeFilter.FILTER_REJECT : test.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP});
+    const nodes = []; while (walk.nextNode()) nodes.push(walk.currentNode);
+    nodes.forEach(n => { const txt = n.nodeValue, frag = document.createDocumentFragment(); let last = 0;
+      txt.replace(re, (m, pre, name, i) => { const s = i + pre.length; frag.append(txt.slice(last, s));
+        const id = map[name.replace(/\s/g, ' ')], a = document.createElement('a');
+        a.className = 'ab'; a.href = `https://www.wowhead.com/spell=${id}`; a.dataset.wowhead = `spell=${id}`; a.target = '_blank'; a.rel = 'noopener'; a.textContent = name;
+        frag.append(a); last = s + name.length; return m; });
+      frag.append(txt.slice(last)); n.replaceWith(frag); });
+    if (nodes.length) whRefresh();
+    busy = false; };
+  new MutationObserver(() => { if (!busy && !queued){ queued = true; requestAnimationFrame(run); } }).observe(document.body, {childList: true, subtree: true, characterData: true});
+  run();
+}
 
 // ---- difficulty: picked on the home page, carried in the address (?diff=14|15|16) and kept in sync by every boss page ----
 const URL_DIFF = (d => [14, 15, 16].includes(d) ? d : null)(+new URLSearchParams(location.search).get('diff'));
@@ -190,7 +217,7 @@ function drawAvoid(el, hits, order, short, H){
   const hc = (n, stack) => `<span style="color:var(--muted);font-weight:400;font-size:.8em;${stack ? 'display:block;line-height:1.1' : 'margin-left:.3em'}">×${n}</span>`;
   const sp = a => H.spell && H.spell(a);   // the ability's spell id: its heading gets the Wowhead tooltip
   const draw = (fmt, stack) => { el.innerHTML = `<tr><th class="w">Player</th>${abs.map(a => `<th class="ab"${sp(a) ? '' : ` title="${tlEsc(a)}"`}><span class="lg">${whLink(sp(a), tlEsc(a))}</span><span class="sh">${whLink(sp(a), tlEsc(short[a] || a))}</span></th>`).join('')}<th>Total</th></tr>` +
-    (rows.length ? rows.map(n => `<tr><td>${H.pname(n)}</td>${abs.map(a => { const c = P[n][a]; return c ? `<td class="n" data-v="${c.d}" title="${c.n} hit${c.n === 1 ? '' : 's'}">${fmt(c.d)}${hc(c.n, stack)}</td>` : '<td class="n z">–</td>'; }).join('')}<td class="n bad" data-v="${tot(n)}">${fmt(tot(n))}${hc(hitsOf(n), stack)}</td></tr>`).join('')
+    (rows.length ? rows.map(n => `<tr><td>${H.pname(n)}</td>${abs.map(a => { const c = P[n][a]; return c ? `<td class="n" data-v="${c.d}" title="${c.n} hit${c.n === 1 ? '' : 's'}">${fmt(c.d)}${hc(c.n, stack)}</td>` : '<td class="n z">–</td>'; }).join('')}<td class="n" style="color:var(--accent);font-weight:600" data-v="${tot(n)}">${fmt(tot(n))}${hc(hitsOf(n), stack)}</td></tr>`).join('')
       : `<tr><td class="z">—</td><td class="n z">0</td></tr>`); };
   // when it doesn't fit: hit counts under the damage, then shorter headings, then upright ones and rounder numbers
   const over = () => el.scrollWidth > el.parentNode.clientWidth + 1;
@@ -433,7 +460,10 @@ async function refreshFlags(slug){   // true when the flags changed
 .adminbox button{background:none;color:var(--muted);border:1px solid var(--line);border-radius:6px;font:600 .74rem var(--f-body);padding:4px 8px;cursor:pointer}
 .adminbox button:hover{color:var(--ink)} .adminbox .on{color:var(--accent);font-weight:600} .adminbox .bad{color:var(--crit)}
 button.ficon{flex:none;background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:.85rem;line-height:1;padding:5px 7px;cursor:pointer}
-button.ficon:hover{color:var(--ink)} button.ficon[aria-pressed="true"]{color:var(--crit);border-color:var(--crit)}`; document.head.appendChild(s); })();
+button.ficon:hover{color:var(--ink)} button.ficon[aria-pressed="true"]{color:var(--crit);border-color:var(--crit)}
+/* Wowhead's tooltips are built from tables: the site's one-line table text leaked in and ran them off their right edge */
+.wowhead-tooltip table,.wowhead-tooltip td,.wowhead-tooltip th{white-space:normal !important;width:auto !important;max-width:100%}
+.wowhead-tooltip{max-width:calc(100vw - 16px)}`; document.head.appendChild(s); })();
 // the title row's "Admin key" field (after the night picker): saving a key there turns on admin mode in this browser (flag
 // icons beside the pull dropdowns, Edit groups); the server checks it (GET /api/editor-check) before it's kept
 function adminBox(){
@@ -483,3 +513,28 @@ function flagIcons(slug, selects, resolve, rerender){
     if (!sel.dataset.ficon){ sel.dataset.ficon = '1'; sel.addEventListener('change', () => flagIcons(slug, [sel], resolve, rerender)); }
   });
 }
+
+// ---- follow the raid (Taylor 2026-11-02): during the team's raid hours, when the uploader says a boss is being pulled
+// (data/<team>/<tier>/live.json, sent the moment the pull starts), a page nobody is using goes to that boss's page on that
+// difficulty, opening on Latest, so the pull shows up the moment it ends. "Nobody is using it" = no scroll, click, key or
+// mouse movement for 30 s, or the tab is in the background; never while an Edit groups box or a dropdown is open. ----
+(() => {
+  const IDLE = 30000;   // 30 s untouched (Taylor 2026-11-02)
+  let active = Date.now(), done = null;   // done: the pull (note) this page already followed
+  ['pointermove', 'pointerdown', 'keydown', 'wheel', 'scroll', 'touchstart'].forEach(e => addEventListener(e, () => { active = Date.now(); }, {passive: true, capture: true}));
+  const busy = () => document.querySelector('details.grped[open]') || (document.activeElement && /^(SELECT|INPUT|TEXTAREA)$/.test(document.activeElement.tagName));
+  async function check(){
+    if (!TEAM || !inRaidHours(TEAM)) return;
+    let note;
+    try { const r = await fetch(`data/${TEAM.id}/${TIER}/live.json?t=${Date.now()}`, {cache: 'no-store'}); if (!r.ok) return; note = await r.json(); } catch (e) { return; }
+    const key = `${note.at}|${note.page}`;
+    if (!note.active || !note.page || key === done) return;
+    const here = (location.pathname.split('/').pop() || 'index').replace(/\.html$/, ''), diff = new URLSearchParams(location.search).get('diff');
+    const onIt = here === note.page && String(diff) === String(note.diff);
+    if (onIt && performance.timeOrigin >= note.at * 1000){ done = key; return; }   // opened on this boss after the pull began: already on Latest
+    if (!(document.hidden || Date.now() - active >= IDLE) || busy()) return;   // someone's using the page: leave it (checked again in 5 s)
+    done = key;
+    if (onIt) location.reload(); else location.href = bossUrl(note.page, TEAM.id, note.diff);   // reload = back to Latest on the newest night
+  }
+  addEventListener('load', () => { check(); setInterval(check, 5000); });
+})();

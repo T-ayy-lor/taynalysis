@@ -512,7 +512,7 @@ function renderSetup(){
 const deadAt = (p, n, t) => p.deaths.some(d => d[1] === n && d[0] <= t && (d[3] == null || d[3] > t));
 // stacks that weren't anyone's mistake: the right soaks (v.ok) and stacks credited to the Caustic Deluge damage-over-time on
 // its target (the tank: it can't be avoided, and it ticks all the time so the stack lining up with it is mostly chance)
-const okVenom = v => v.ok || v.src === 'Caustic Deluge';
+const okVenom = v => v.ok || v.src === 'Caustic Deluge' || v.src === 'Unknown';   // "Unknown" (nothing that hit them explains it) left out too (Taylor 2026-11-02)
 // venom causes in plain words (Taylor 2026-11-01: "call the waves waves"), each with a tooltip saying what happened
 const SRC_NAME = {'Caustic Globule burst (unsoaked)': 'Unsoaked globules', 'Caustic Deluge (falling globule)': 'Falling globules', 'Stir the Depths': 'Waves'};
 const SRC_TIP = {'Unsoaked globules': 'A Caustic Globule nobody soaked burst on the raid (on the map, the cross is where it burst)',
@@ -807,11 +807,12 @@ const ABILITY = {'Eternal Venom': 1290336, 'Caustic Deluge': 1289192, 'Caustic G
   'Visceral Burst': 1308385, 'Ravenous Feast': 1290516, 'Feasted': 1310096, 'Tainted Blood': 1310099, 'Tainted Burst': 1310105, 'Coiling Ichor': 1290809,
   'Congealed Gore': 1292505, 'Stone Breaker': 1288538, 'Fractured': 1289092, 'Clotted Bolt': 1295115, 'Toxic Fumes': 1295049, 'Submerge': 1308556,
   'Noxious Slick': 1309471, 'Uncoiled Wrath': 1308583, 'Sanguine Storm': 1306872};
+autoLink(ABILITY);   // shared.js: every ability name anywhere on the page, card titles too
 const AB_RE = new RegExp('\\b(' + Object.keys(ABILITY).sort((a, b) => b.length - a.length).map(k => k.replace(/ /g, '\\s')).join('|') + ')\\b', 'g');
 const AB_TEST = new RegExp(AB_RE.source);   // no 'g' flag: test() keeps no state between nodes
 function linkify(root){
   const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
-    n.parentElement.closest('a, select, option, script, style, svg, .tip, button, input, th, .key') ? NodeFilter.FILTER_REJECT : AB_TEST.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP});
+    n.parentElement.closest('a, select, option, script, style, svg, .tip, button, input, th, .key, .wowhead-tooltip, [class*="wowhead"]') ? NodeFilter.FILTER_REJECT : AB_TEST.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP});
   const nodes = []; while (walk.nextNode()) nodes.push(walk.currentNode);
   nodes.forEach(n => {
     const frag = document.createDocumentFragment(); let last = 0; const txt = n.nodeValue;

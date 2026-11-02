@@ -664,11 +664,12 @@ const ABILITY = {"Light's Embrace": 1304508, 'Extinguish': 1304424, 'Abyssal Gra
   'Mindsting': 1304040, 'Eclipse Fragments': 1308674, 'Eclipse Fragment': 1308674, 'Voidscar': 1304950, 'Lost Refulgence': 1308675, 'Dark Devastation': 1304930,
   'Devastated': 1304948, 'Null Gates': 1308873, 'Null Gate': 1308873, 'Nullify': 1308875, 'Nullshards': 1308881, 'Negation': 1318467,
   'Explosive Restabilization': 1318472, 'Venom Roar': 1302884, 'Twisted Appendage': 1303681, 'Suffocation': 1303257, 'Gut Reaction': 1302117};
+autoLink(ABILITY);   // shared.js: every ability name anywhere on the page, card titles too
 const AB_RE = new RegExp('\\b(' + Object.keys(ABILITY).sort((a, b) => b.length - a.length).map(k => k.replace(/ /g, '\\s')).join('|') + ')\\b', 'g');
 const AB_TEST = new RegExp(AB_RE.source);   // no 'g' flag: test() keeps no state between nodes
 function linkify(root){
   const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
-    n.parentElement.closest('a, select, option, script, style, svg, .tip, button, input, th, .key, h2') ? NodeFilter.FILTER_REJECT : AB_TEST.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP});
+    n.parentElement.closest('a, select, option, script, style, svg, .tip, button, input, th, .key, h2, .wowhead-tooltip, [class*="wowhead"]') ? NodeFilter.FILTER_REJECT : AB_TEST.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP});
   const nodes = []; while (walk.nextNode()) nodes.push(walk.currentNode);
   nodes.forEach(n => {
     const frag = document.createDocumentFragment(); let last = 0; const txt = n.nodeValue;

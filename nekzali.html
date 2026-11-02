@@ -37,8 +37,6 @@ const ignitions = p => npcAuras(p, 'Soulcoil Ignition').map(a => {
   const carried = auras(p, 'Ritual Burn').filter(x => x[1] < a[3] - 0.1 && (x[2] == null || x[2] > a[3]));
   return {t: a[3], end: a[4] != null ? a[4] : p.dur, burn: Math.max(0, ...carried.map(x => x[7] || x[3])), burned: carried.length,
     hit: [...new Set(hitsOf(p, 'Anguished Echoes').filter(h => h[0] >= a[3] - 1 && h[0] <= (a[4] != null ? a[4] : p.dur) + 6).map(h => h[1]))]}; });
-const barrages = p => pulsesOf(p, 'Possession Barrage').map(x => ({t: x[0], dmg: x[2],
-  path: [...new Set(auras(p, 'Possession Barrage').filter(a => !isTankIn(p, a[0]) && Math.abs(a[1] - x[0]) < 4).map(a => a[0]))]}));
 const stints = p => auras(p, 'Hollowing Strikes').filter(a => isTankIn(p, a[0]) || a[3] > 2);
 const TOO_MANY = 8;   // Hollowing Strikes: 5% less healing per stack; swap by 30-40% (Method), 5-6 stacks (Icy Veins)
 const CFG = {
@@ -87,12 +85,6 @@ const CFG = {
      all: list => perPlayer(list, [{h: 'Hit by Anguished Echoes', get: p => ignitions(p).flatMap(g => g.hit.map(n => ({n, t: g.t})))}]),
      foot: list => { const n = list.flatMap(ignitions).filter(g => g.burn).length; return n ? `<b style="color:var(--crit)">${n} Ignition${n === 1 ? '' : 's'} started with Ritual Burn on the raid.</b>` : ''; },
      note: 'Ritual Burn (Heroic, Mythic) has to be gone before Soulcoil Ignition starts; it\'s left over from extra Rites. Dodge the Anguished Echoes that fall from the well.'},
-
-    {id: 'barrage', title: 'Possession Barrage',
-     one: p => ({head: ['Time', 'Raid damage', ['In the path', 'l']], rows: barrages(p).filter(b => b.path.length).map(b => [T(b.t), V(big(b.dmg)), PS(b.path)])}),
-     all: list => perPlayer(list, [{h: 'In the path', get: p => barrages(p).flatMap(b => b.path.map(n => ({n, t: b.t})))}]),
-     foot: list => { const d = list.flatMap(barrages).map(b => b.dmg); return d.length ? `Raid damage per barrage: ${big(d.reduce((a, b) => a + b, 0) / d.length)} on average (less when the tank goes farther from the raid).` : ''; },
-     note: 'The tank goes 30+ yd from the raid before it lands; anyone standing between Nek\'zali and the tank takes an echo.'},
 
     {id: 'hollow', title: 'Hollowing Strikes',
      one: p => ({head: [['Tank', 'l'], 'From', 'To', 'Top stack'], rows: stints(p).filter(a => a[3] > TOO_MANY).map(a => [P(a[0]), T(a[1]), T(a[2] != null ? a[2] : p.dur), N(a[3], a[3] > TOO_MANY ? 'bad' : '')])}),

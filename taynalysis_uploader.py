@@ -1159,7 +1159,7 @@ class FailParser:
         return g if g.startswith('Player-') else self.pets.get(g)
 
     def want(self, group, sname, sid):
-        s = self.cfg[group]
+        s = self.cfg.get(group, ())
         return sname if sname in s else ('#' + sid) if ('#' + sid) in s else None
 
     def npc_pos(self, c, g, t):
@@ -1749,6 +1749,32 @@ def backup_groups(up, root):
     if n: print(f'[{stamp()}] Saved {n} group / flag file{"" if n == 1 else "s"} from the site into {root}.')
 
 
+# ---- "now pulling" (Taylor 2026-11-02): the moment a supported boss is pulled, data/<team>/<tier>/live.json says so, and
+# again when the pull ends, so open pages can follow the raid to that boss (only viewers who aren't using the page) ----
+LIVE_RE = re.compile(r'^(\d+)/(\d+)/(\d+) (\d+):(\d+):(\d+)[^ ]*  ENCOUNTER_(START|END),(\d+),"([^"]*)",(\d+)', re.M)
+def live_pages():
+    """encounter id -> the boss's page (file name without .html, as in shared.js BOSSES)."""
+    return {'3420': 'sszorak', '3421': 'fangs', '3513': 'kithix', **{b['enc']: b['slug'] for b in FAIL_BOSSES}}
+
+def live_note(up, text, state):
+    """Send live.json when this new log text starts or ends a supported boss's pull (only lines from the last 15 minutes:
+    reading an older part of the log never announces a pull)."""
+    last = None
+    for m in LIVE_RE.finditer(text):
+        if m.group(8) in live_pages(): last = m
+    if not last: return
+    mo, d, y, hh, mi, ss = (int(last.group(i)) for i in range(1, 7))
+    try: when = datetime(y, mo, d, hh, mi, ss).timestamp()
+    except ValueError: return
+    if time.time() - when > 900: return
+    start = last.group(7) == 'START'
+    note = {'active': start, 'page': live_pages()[last.group(8)], 'boss': last.group(9), 'diff': int(last.group(10)), 'at': int(time.time())}
+    if note == state.get('note') or (state.get('note') or {}).get('active') == start and (state.get('note') or {}).get('page') == note['page']: return
+    state['note'] = note
+    try: up.put(f'{os.path.dirname(NIGHT_DIR)}/live.json', json.dumps(note).encode('utf-8'))
+    except Exception as e: print(f'[{stamp()}] Could not send the now-pulling note: {e}')
+
+
 def date_key(d):
     m, dd, y = (d or '01/01/1970').split('/')
     return f'{y}{int(m):02d}{int(dd):02d}'
@@ -1870,6 +1896,7 @@ def main():
     # only logs WoW writes to while the uploader runs: an older log (a past raid night) is never uploaded, so starting the
     # uploader before WoW opens tonight's log can't send last night's pulls (to this team or any other). --log still reads any log.
     started, waiting_on = time.time() - 5, None
+    live_state = {}   # the last now-pulling note sent
 
 
     def send():
@@ -1959,6 +1986,7 @@ def main():
                     text = dec.decode(chunk)
                     parser.feed(text); fangs.feed(text); kith.feed(text); act.feed(text)
                     for fp in fails: fp.feed(text)
+                    if up and up.live and not path_override: live_note(up, text, live_state)   # pages follow the raid to the boss being pulled
                     if show: bar(pos, total, f'Reading log  {fmt_size(pos)} of {fmt_size(total)}')
                 if show:
                     n = sum(1 for p in parser.pulls if not p['ended'] or (p['dur'] or 0) >= 2)   # same pulls the site shows
