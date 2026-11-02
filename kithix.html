@@ -26,7 +26,6 @@
 :root[data-accent="warlock"][data-theme="dark"]{--accent:#8788ee}
 :root[data-accent="warlock"][data-theme="dark"] .panel{border-color:#2d4220; box-shadow:0 0 24px -14px rgba(143,209,79,.5)}
 #wlSeg{margin-left:auto;align-self:center}
-#wlSeg:not([hidden]) ~ #themeSeg{margin-left:0}
 :root[data-accent="warlock"]:not([data-theme="dark"]) .panel{border-color:#9ccc6e; box-shadow:0 0 24px -12px rgba(110,190,40,.55)}
 
 *{box-sizing:border-box}
@@ -47,12 +46,12 @@ h1{font-family:var(--f-display);font-weight:700;font-size:1.9rem;margin:0}
 .bosspick::after{content:"";position:absolute;right:.12em;top:50%;width:.36em;height:.36em;border-right:.11em solid currentColor;border-bottom:.11em solid currentColor;transform:translateY(-75%) rotate(45deg);pointer-events:none}
 h2{font-family:var(--f-display);font-weight:600;font-size:1.15rem;margin:0}
 .sub{color:var(--muted);font-size:.95rem}
-#themeSeg{margin-left:auto;align-self:center}
 select{font:600 .9rem var(--f-body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;max-width:100%}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .seg button{border:0;background:transparent;color:var(--ink);font:600 .84rem var(--f-body);padding:6px 11px;cursor:pointer}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button[aria-pressed=true]{background:var(--accent);color:var(--panel)}
+.seg button:disabled{opacity:.35;cursor:not-allowed}   /* a difficulty with no pulls */
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
 .ph{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:flex-start;margin-bottom:10px;min-height:32px}
@@ -229,8 +228,18 @@ table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-
 #mapsvg svg.dense g[data-tip] > circle:last-child{r:3px;stroke-width:.6px;opacity:.75}
 #mapsvg svg.dense g[data-tip] > path{opacity:.8}
 @media (max-width:400px){.mpanel .ovseg button{padding:6px 8px}}   /* the map's overlay switch fits a 360 px phone */
-/* phones: no theme switch (it wrapped badly); they always get the default dark theme */
-@media (max-width:600px){#themeSeg{display:none}}
+/* ---- no empty space in a row (Taylor 2026-10-31): Damage sets the bottom row's height and the column beside it ends level
+   (Early deaths fills what's left and scrolls); paired mechanic cards end where the shorter one ends and the taller one
+   scrolls (shared.js fitPairs). Scrolling cards fade at the bottom while there's more (.scrollfit / .more) ---- */
+.scrollfit{overflow-y:auto;min-height:0}
+.scrollfit.more{-webkit-mask-image:linear-gradient(to bottom,#000 82%,transparent);mask-image:linear-gradient(to bottom,#000 82%,transparent)}
+.bottom .stack > .panel{flex:none}
+.bottom .stack > .panel:last-child{flex:1 1 0;min-height:300px;display:flex;flex-direction:column;contain:size}
+.bottom .stack > .panel:last-child > .scrollfit{flex:1 1 0}
+.mods{align-items:start}
+.mods > .panel{display:flex;flex-direction:column}
+.mods > .panel.fit > .tw{flex:1 1 0}
+@media (max-width:800px){.bottom .stack > .panel:last-child{contain:none;flex:none;min-height:0}.bottom .stack > .panel:last-child > .scrollfit{flex:none;max-height:420px}}
 </style>
 </head>
 <body>
@@ -241,10 +250,6 @@ table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-
     <select id="night" aria-label="Raid night" hidden></select>
     <span class="sub" id="sub">Loading…</span>
     <div class="seg" id="wlSeg" role="group" aria-label="Warlock mode" hidden><button type="button" id="wlBtn" aria-pressed="false">Warlock mode</button></div>
-    <div class="seg" id="themeSeg" role="group" aria-label="Color theme">
-      <button type="button" id="thLight" aria-pressed="false">Light</button>
-      <button type="button" id="thDark" aria-pressed="true">Dark</button>
-    </div>
     <p class="needs">Needs testing</p>
   </header>
 
@@ -253,7 +258,6 @@ table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-
     <div class="seg" id="diffSeg" role="group" aria-label="Difficulty">
       <button type="button" data-d="14">Normal<span></span></button><button type="button" data-d="15">Heroic<span></span></button><button type="button" data-d="16">Mythic<span></span></button>
     </div>
-    <span class="sub" id="diffNote"></span>
   </div>
 
   <div class="panel">
@@ -314,20 +318,20 @@ table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-
     </div>
   </div>
 
-  <div class="panel">
-    <div class="ph"><h2>Avoidable damage taken</h2><select class="scope" data-s="avoid" aria-label="Pulls to show"></select></div>
-    <div class="tw"><table id="avoidT"></table></div>
-    <p class="note">Damage taken from each (hover a number for how many hits; shields count). Venom Roar and Dark Devastation don't count on tanks; Null Gate and Explosive Restabilization don't count on the player who set them off.</p>
-  </div>
-
   <div class="bottom">
     <div class="panel"><div class="ph"><h2>Damage</h2><select class="scope" data-s="dmg" aria-label="Pulls to show"></select></div><div class="meter" id="dmg"></div></div>
     <div class="stack">
       <div class="panel"><div class="ph"><h2>Healing</h2><select class="scope" data-s="heal" aria-label="Pulls to show"></select></div><div class="meter" id="heal"></div></div>
       <div class="panel"><div class="ph"><h2>Dispels</h2><select class="scope" data-s="disp" aria-label="Pulls to show"></select></div><div class="meter" id="disp"></div></div>
       <div class="panel"><div class="ph"><h2>Early deaths</h2><select class="scope" data-s="deaths" aria-label="Pulls to show"></select></div>
-        <div class="tw"><table id="deaths"></table></div></div>
+        <div class="tw scrollfit"><table id="deaths"></table></div></div>
     </div>
+  </div>
+
+  <div class="panel">
+    <div class="ph"><h2>Avoidable damage taken</h2><select class="scope" data-s="avoid" aria-label="Pulls to show"></select></div>
+    <div class="tw"><table id="avoidT"></table></div>
+    <p class="note">Damage taken from each, then how many hits (×N); shields count. Venom Roar and Dark Devastation don't count on tanks; Null Gate and Explosive Restabilization don't count on the player who set them off.</p>
   </div>
 
   <div class="panel">
@@ -366,18 +370,11 @@ const big = v => v >= 1e9 ? (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? (v / 1e6).to
 const pct = v => Math.round(v * 100) + '%';
 const DIFF = {14: 'Normal', 15: 'Heroic', 16: 'Mythic'};
 
-// ---- theme (shared with the other boss pages) ----
-function setTheme(t, remember){
-  document.documentElement.dataset.theme = t;
-  $('thLight').setAttribute('aria-pressed', String(t === 'light')); $('thDark').setAttribute('aria-pressed', String(t === 'dark'));
-  if (remember){ try { localStorage.setItem('vir-theme', t); } catch (e) {} }
-}
-(() => { let saved = null; try { if (!matchMedia('(max-width:600px)').matches) saved = localStorage.getItem('vir-theme'); } catch (e) {} setTheme(saved || 'dark', false); })();
-$('thLight').onclick = () => setTheme('light', true); $('thDark').onclick = () => setTheme('dark', true);
+document.documentElement.dataset.theme = 'dark';   // dark only: the light theme and its switch were removed (2026-10-31)
 
 // ---- view state ----
 const SCOPES = ['map', 'beetle', 'inter', 'ext', 'fear', 'sting', 'tank', 'gate', 'avoid', 'dmg', 'heal', 'disp', 'deaths'];
-const st = {scope: Object.fromEntries(SCOPES.map(k => [k, 'latest'])), ov: 'beetle', diff: null};   // scope: 'latest', 'all' or a pull's key
+const st = {scope: Object.fromEntries(SCOPES.map(k => [k, DEF_SCOPE])), ov: 'beetle', diff: null};   // scope: 'latest', 'all' or a pull's key
 try { const v = JSON.parse(localStorage.getItem('kithix-view') || '{}'); if (['beetle', 'gates', 'fear'].includes(v.ov)) st.ov = v.ov; } catch (e) {}
 const saveView = () => { try { localStorage.setItem('kithix-view', JSON.stringify({ov: st.ov})); } catch (e) {} };
 
@@ -397,7 +394,9 @@ function nights(){
   });
   return ns;
 }
-function viewPulls(ns){ return SITE.view === 'all' ? ns.flatMap(n => n.pulls) : ((ns.find(n => n.key === SITE.view) || {}).pulls || []); }
+// "ignore events after N deaths" (shared.js cutPull): how each list in a pull is timed; dmg / heal / dispels stay whole
+const CUT_SPEC = {casts: 'dict:num', auras: 'dict:at:1', hits: 'row', adds: 'row', npc: 'at:3', beetles: 'row', hatched: 'num', deaths: 'row', avoid: 'row'};
+function viewPulls(ns){ return (SITE.view === 'all' ? ns.flatMap(n => n.pulls) : ((ns.find(n => n.key === SITE.view) || {}).pulls || [])).map(p => cutPull(p, CUT_SPEC)); }
 // checked every few seconds; the page only redraws when something actually changed
 async function checkSite(){
   let changed = !SITE.index; const err0 = SITE.err;
@@ -406,7 +405,7 @@ async function checkSite(){
     await Promise.all((idx.nights || []).map(async e => { const have = SITE.files[e.file]; if (!have || have.updated !== e.updated){ SITE.files[e.file] = await fetchJSON(e.file); changed = true; } }));
     if (SITE.index && (SITE.index.nights || []).length !== (idx.nights || []).length) changed = true;
     SITE.index = idx; SITE.err = null;
-    if (!SITE.view){ const ns = nights(); SITE.view = ns.length ? ns[ns.length - 1].key : null; }   // newest night on load only
+    if (!SITE.view) SITE.view = startNight(nights());   // on load only: the newest night during raid hours, else all nights
   } catch (e) {
     SITE.err = /404/.test(String(e)) ? null : 'Could not load the data; trying again in a few seconds.';
     if (!SITE.index) SITE.index = {nights: []};
@@ -654,7 +653,7 @@ function renderTimeline(ns){
 }
 
 // ---- bottom panels: shared.js draws them with this page's helpers ----
-const H = {pname, order: byRoster, healer: n => role(n) === 'Healer', people, color};
+const H = {pname, order: byRoster, healer: n => role(n) === 'Healer', people, color, spell: n => ABILITY[n]};
 
 // ---- ability tooltips: ability names link to Wowhead, whose tooltip script shows the in-game ability text on hover ----
 const ABILITY = {"Light's Embrace": 1304508, 'Extinguish': 1304424, 'Abyssal Grasp': 1303406, 'Overwhelming Fear': 1304046, 'Unspeakable Horrors': 1304045,
@@ -683,16 +682,15 @@ function linkify(root){
 // ---- difficulty: picks which pulls every module shows, and hides modules that don't happen on it ----
 function renderDiff(ns){
   const all = ns.flatMap(n => n.pulls);
-  if (st.diff == null){   // on load: the newest pull's difficulty, else the team's usual one
-    const last = all[all.length - 1];
-    st.diff = last ? last.diff : TEAM.diff;
-  }
+  if (st.diff == null) st.diff = startDiff(all);   // on load: the home page's pick (?diff=), else the newest pull's, else the team's usual one
   const inView = viewPulls(ns);
   $('diffSeg').querySelectorAll('button').forEach(b => { const d = +b.dataset.d, c = inView.filter(p => p.diff === d).length;
     b.setAttribute('aria-pressed', String(d === st.diff)); b.querySelector('span').textContent = c; });
+  syncDiff(all, st.diff);
   document.querySelectorAll('[data-diffs]').forEach(el => { el.hidden = !el.dataset.diffs.split(',').includes(String(st.diff)); });
 }
 $('diffSeg').querySelectorAll('button').forEach(b => b.onclick = () => { st.diff = +b.dataset.d; render(); });
+initDeathCut(render);
 
 // ---- render ----
 function render(){
@@ -707,14 +705,12 @@ function render(){
     ...viewAll.slice().reverse().map(p => [p.key, pullLabel(p, all)]), ['all', `Overall (${viewAll.length} pull${viewAll.length === 1 ? '' : 's'})`]];
   const L = {};
   document.querySelectorAll('select.scope').forEach(el => { const k = el.dataset.s;
-    if (st.scope[k] !== 'latest' && st.scope[k] !== 'all' && !viewAll.some(p => p.key === st.scope[k])) st.scope[k] = 'latest';
+    if (st.scope[k] !== 'latest' && st.scope[k] !== 'all' && !viewAll.some(p => p.key === st.scope[k])) st.scope[k] = DEF_SCOPE;
     el.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}"${v === st.scope[k] ? ' selected' : ''}>${esc(t)}</option>`).join('');
     const sg = document.querySelector(`.seg.mini[data-s="${k}"]`);
     if (sg) sg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === st.scope[k])));
     L[k] = st.scope[k] === 'all' ? viewAll : st.scope[k] === 'latest' ? (latest ? [latest] : []) : viewAll.filter(p => p.key === st.scope[k]); });
   $('sub').textContent = '';
-  const kills = viewAll.filter(p => p.kill).length;
-  $('diffNote').textContent = `${viewAll.length} ${DIFF[st.diff]} pull${viewAll.length === 1 ? '' : 's'}${kills ? ` · ${kills} kill${kills === 1 ? '' : 's'}` : ''}`;
   renderTimeline(ns);
   SCREAM_BAR = screamBar(allDiff);
   renderMap(viewAll, L.map, L.map.length > 1); drawAvoid($('avoidT'), L.avoid.flatMap(avoidHits), AVOID, AB_SHORT, H);

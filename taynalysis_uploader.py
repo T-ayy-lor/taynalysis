@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 LOG_DIR = '/Applications/World of Warcraft/_retail_/Logs'
 REPO = 't-ayy-lor/taynalysis'      # owner/repository of your GitHub Pages site
 BRANCH = 'main'
-TEAMS = [('ac-mythic', 'Almost Casual Mythic'), ('ac-heroic', 'Almost Casual Heroic'), ('ac-weekend', 'Almost Casual Weekend')]   # same ids as shared.js
+TEAMS = [('ac-mythic', 'AC Mythic (W/TR)'), ('ac-heroic', 'AC Heroic (T)'), ('ac-weekend', 'AC Weekend (S)')]   # same ids as shared.js
 TIER = 'venomous-abyss'                    # this raid's folder name, also in shared.js
 # set by set_team(): Sszorak nights folder and its list of nights (read by the page's night picker), same for Twin Fangs
 NIGHT_DIR = INDEX_PATH = FANGS_DIR = FANGS_INDEX = SETUP_PATH = KITH_DIR = KITH_INDEX = ACT_DIR = ACT_INDEX = None
@@ -32,6 +32,19 @@ SERVER_TOKEN_FILE = os.path.expanduser('~/.taynalysis_server_token')  # upload t
 SYNC_FILE = os.path.expanduser('~/.taynalysis_sync.json')            # which page files were last sent to the server
 PAGE_EXT = {'.html', '.css', '.js', '.png', '.jpg', '.jpeg', '.webp', '.svg', '.ico', '.woff2'}   # page files, sent when they change
 DATA_EXT = {'.json', '.txt'}                                         # raid data and setup files, sent by --sync-site
+# group history files (data/<team>/<tier>/<page>/groups-<set>.json): the raid note's changes (this uploader) and picks made on
+# the page (the server, with the editor key) both land there; site_files never sends them, backup_groups copies them home
+# every boss's raid note is kept as it arrived (groups-note.json; Taylor 2026-11-02: "every fight ... we need to be prepared
+# for any case"); Twin Fangs' is also turned into setup.txt + groups-feast / groups-kicks, which its page scores with
+NOTE_BOSSES = {'3420': 'sszorak', '3421': 'twin-fangs', '3513': 'kithix'}   # + every FAIL_BOSSES boss (note_pages)
+GROUP_FILES = {'twin-fangs': ('feast', 'kicks')}
+def note_pages():
+    """encounter id -> boss page folder, for every supported boss."""
+    return {**NOTE_BOSSES, **{b['enc']: b['slug'] for b in FAIL_BOSSES}}
+def group_files():
+    """page folder -> its group history files (groups-<set>.json): every boss keeps its raid notes."""
+    return {pg: GROUP_FILES.get(pg, ()) + ('note',) for pg in note_pages().values()}
+is_groups_file = lambda f: f.startswith('groups-') and f.endswith('.json')
 
 ENC, BOSS_NPC = '3420', '-257347-'           # Sszorak encounter ID and creature ID
 VIR_A, VIR_B, BOOM = '1297707', '1299899', '1300089'
@@ -39,6 +52,11 @@ TEMPEST, TEMPEST_CAST = '1287083', '1287072'   # Tempest hit/debuff and the boss
 SURGE_CAST, SURGE_DEBUFF = '1305959', '1305963'   # Venomous Surge: the boss's cast, and the debuff on 2 ranged players
 SURGE_LEN = 9.5                                # a debuff that lasted at least this long ran out on its own (it lasts 10 s)
 TELEPORT = '48020'                             # Demonic Circle: Teleport, counted per player per pull
+# Heroic (and every difficulty) mechanics, checked in Taylor's Heroic logs Aug-Oct 2026:
+MUT_CAST, MUT_HIT = '1277027', '1285999'       # Mutilate: the boss's cast (3 s) and the raid cone hitting each soaker
+SSZ_AURAS = {'1277051': 'gash',                # Mutilated Gash: DoT on every Mutilate soaker (a 2nd Mutilate with it on = soaked twice)
+             '1285425': 'cross', '1285453': 'cross',   # Raging Crosswinds arrow on a player
+             '1285447': 'gust'}                # Turbulent Gusts: in the air after the launch; two players' end together = they collided
 DMG_STEP = 5                                   # seconds per damage window in each pull's timeline
 # avoidable hits (Wowhead guide + journal): tornadoes, the tank's frontal on anyone else, claw impacts, residue pools,
 # someone's Raging Crosswinds blowing up next to you (1285616; not the DoT), the Mythic charge. The page drops tanks for Ravage.
@@ -88,7 +106,7 @@ class Parser:
                         diff=int(r[3]), size=int(r[4]), ended=False, kill=False, dur=0.0, lastT=0.0,
                         track={}, specGuid={}, aura=[], boom=[], died={}, bossGuid=None, boss=[], bossHp=None, dmg={},
                         tempest={}, tempestCasts=0, now=0.0, ports={}, surgeCasts=[], sur=[], sdeb={},
-                        heal={}, dispels=[], avoid=[], lasthit={})
+                        heal={}, dispels=[], avoid=[], lasthit={}, mutCasts=[], mutHits=[], hau=[], hauOpen={})
         self.pulls.append(self.cur)
 
     def end(self, rest):
@@ -164,6 +182,18 @@ class Parser:
                         rec = c['sdeb'].pop(r[5], None)
                         if rec: rec['off'] = t
                 return
+            if any(a in rest for a in SSZ_AURAS):
+                r = self.split(rest)
+                kind = SSZ_AURAS.get(r[9])
+                if kind and r[5].startswith('Player-'):
+                    self.names[r[5]] = r[6].split('-')[0]
+                    key = (kind, r[5])
+                    if ev == 'SPELL_AURA_APPLIED':
+                        rec = [kind, r[5], t, None, r[9]]; c['hauOpen'][key] = rec; c['hau'].append(rec)
+                    else:
+                        rec = c['hauOpen'].pop(key, None)
+                        if rec: rec[3] = t
+                    return
             if VIR_A not in rest and VIR_B not in rest: return
             r = self.split(rest)
             if r[9] in (VIR_A, VIR_B) and r[5].startswith('Player-'):
@@ -178,8 +208,14 @@ class Parser:
                 if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
             except (ValueError, IndexError): pass
             return
+        if ev == 'SPELL_CAST_START' and MUT_CAST in rest:
+            r = self.split(rest)
+            if r[9] == MUT_CAST and BOSS_NPC in r[1]: c['mutCasts'].append(t)
+            return
         if ev.startswith('SPELL_AURA') or ev in ('SWING_DAMAGE_LANDED', 'SPELL_CAST_START'): return
         r = self.split(rest)
+        if ev in ('SPELL_DAMAGE', 'SPELL_MISSED') and r[9] == MUT_HIT and r[5].startswith('Player-'):
+            c['mutHits'].append((t, r[5]))
         if ev == 'SPELL_DISPEL':                 # a player cleansing a debuff off a player
             o = r[1] if r[1].startswith('Player-') else self.pets.get(r[1])
             if o and len(r) > 13 and r[5].startswith('Player-'): c['dispels'].append((t, o, r[5], r[13]))
@@ -340,6 +376,20 @@ class Parser:
             out.append({'t': round(g['t'], 2), 'deb': deb})
         return out
 
+    def build_mut(self, p, nm):
+        """Each Mutilate: [cast start, [players its cone hit], [each one's position when hit], the boss's position then]
+        (hits land 3 s after the start). Positions tell which side of the boss each soak group stood on."""
+        out = []
+        for i, s in enumerate(p['mutCasts']):
+            nxt = p['mutCasts'][i + 1] if i + 1 < len(p['mutCasts']) else s + 8
+            hits = {}
+            for t, g in p['mutHits']:
+                if s <= t < min(nxt, s + 8): hits.setdefault(g, t)
+            gs = sorted(hits, key=lambda g: nm(g))
+            out.append([round(s, 2), [nm(g) for g in gs], [self.pos_at(p['track'].get(g, []), hits[g]) for g in gs],
+                        self.pos_at(p['boss'], s + 3)])
+        return out
+
     def build(self, log_name):
         nm = lambda g: self.names.get(g, g)
         for p in self.pulls:
@@ -381,6 +431,13 @@ class Parser:
                           'tempestCasts': p['tempestCasts'],
                           'ports': {nm(g): n for g, n in p['ports'].items()},
                           'surges': self.build_surges(p, nm),
+                          'mut': self.build_mut(p, nm),
+                          # [kind, player, on, off, spell, position at on, position at off]: gash = Mutilated Gash,
+                          # cross = Raging Crosswinds arrow (its spell sets the direction), gust = Turbulent Gusts (in the air)
+                          'hau': [[k, nm(g), round(on, 2), None if off is None else round(off, 2), sid,
+                                   self.pos_at(p['track'].get(g, []), on) if k != 'gash' else None,
+                                   self.pos_at(p['track'].get(g, []), off) if k != 'gash' and off is not None else None]
+                                  for k, g, on, off, sid in p['hau']],
                           'heal': {nm(g): round(v) for g, v in p['heal'].items()},
                           'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],
                           'avoid': [[round(t, 2), nm(g), s, round(v)] for t, g, s, v in p['avoid']],
@@ -406,8 +463,9 @@ class FangsParser:
     TAINTED = ('1310102', '1310099')                          # Tainted Blood: a debuff re-applied while standing in it (and the journal's ID)
     OK_VENOM = {'1289201': 'Caustic Globule', '1308122': 'Venomous Emergence', '1291404': 'Venomous Emergence',
                 '1293295': 'Corrosive Spit', '1293979': 'Corrosive Spit', '1291478': 'Corrosive Spit'}
-    NOT_CAUSE = {'1290480', '1290336', '1308482', '1303235', '1294976', '1310102', '1310099', '1310096', '1303230', '1289192'}
+    NOT_CAUSE = {'1290480', '1290336', '1308482', '1303235', '1294976', '1310102', '1310099', '1310096', '1303230', '1289192', '1289237'}
     # ^ Eternal Venom itself, Rouse the Brood, Blood Torrent, Toxic Fumes, Tainted Blood, Feasted, the tank's Caustic Deluge debuff
+    #   and its damage ticks (1289237: on the tank the whole time, never the cause)
     LABEL = {'1290338': 'Caustic Globule burst (unsoaked)', '1289994': 'Caustic Deluge (falling globule)'}
     # avoidable hits (Wowhead guide + journal): Stir the Depths waves (1292807; not its raid pulse), Vile Flood, acid
     # splashes, Coiling Ichor on anyone but its carrier (the page checks), gore pools, Sanguine Storm, Submerge impacts and
@@ -1051,7 +1109,7 @@ FAIL_BOSSES = [
          hits={'Plague Wave', 'Plague Froth', 'Stygian Burst', 'Virulent Fumes', 'Deadly Venom', 'Umbral Ejection', '#1282602'},
          pulses={'Malignance', 'Malignant Burst', '#1282616', '#1282602', 'Caustic Surge', 'Caustic Explosion'},
          adds={'Burning Venom', 'Shrouded Venom', 'Clotting Venom', 'Malignant Totem'}),
-    dict(slug='lost-explorers', name='The Lost Explorers', enc='3497', boss={'261835': 'Nama', '267076': 'Iku', '261848': 'Gebbo'},
+    dict(slug='lost-explorers', name='The Lost Explorers', enc='3497', boss={'261835': 'Nama', '261843': 'Iku', '261848': 'Gebbo'},
          casts={'Final Ascension', "Mor'zahi's Command", 'Explosive Surprise', 'Mighty Thud', 'Frostfire Volley', 'Shell Spin',
                 'Throw Junk', 'Mushroom Toss', 'Blink Nova'},
          kicks={'Icebound Flames'},
@@ -1062,18 +1120,19 @@ FAIL_BOSSES = [
                'Frost Patch', 'Shell Spin', 'Deadly Venom', 'Aftershock', 'Frostfire Volley', '#1300237'},
          pulses={'Final Ascension', 'Relic Rupture', 'Elemental Explosion', 'Cataclysmic Invocation', 'Fishy Feedback', '#1300237'},
          adds=set()),
-    dict(slug='coiled-altar', name='The Coiled Altar', enc='3429', boss={'270093': "Zul'jan", '270405': 'Malacrass'},
+    dict(slug='coiled-altar', name='The Coiled Altar', enc='3429', boss={'257911': "Zul'jan", '259854': 'Malacrass'},   # Zul'jan is logged as a Vehicle
          casts={'Dreadmarch', 'Guillotine', 'Grim Guillotine', 'Spiritcackle', 'Soulbinding', 'Toxic Deluge', 'Gloombomb', 'Sever',
                 'Soul Sever', 'Blighted Sever', 'Venomfang'},
          kicks={'Wail of Terror', 'Eternal Nightfall'},
          auras={'Dreadmarch', 'Gravebound', 'Gloombomb', 'Volatile Venom', 'Sever', 'Soul Sever', 'Blighted Sever', '#1283485',
                 '#1307425', '#1299266', '#1307652', 'Venomfang', 'Wail of Terror', 'Venom Rupture'},
-         npc={'Consumed by Resentment', 'Veil of Twilight', 'Soulbinding'},
+         npc={'Consumed by Resentment', 'Veil of Twilight', 'Soulbinding', 'Soul Sever', 'Blighted Sever'},   # Severs: on the ghosts
+         fixate={'Unnerving Fixation'},   # which Manifestation of Dread chases which player
          hits={'Axegrinder', 'Noxious Ground', 'Defiled Ground', "Widow's Kiss", "Death's Embrace", 'Gloombomb', 'Volatile Venom',
                'Sever', 'Soul Sever', 'Blighted Sever', 'Deadly Venom', 'Unworthy', '#1297906', '#1283594', '#1299296'},
          pulses={'Execution', 'Grim Execution', 'Reclaim Essence', 'Eternal Nightfall', '#1283594', '#1299296', 'Spirit Erasure'},
-         adds={'Spiteful Soulcoiler'}),
-    dict(slug='ulatek', name="Ula'tek", enc='3492', boss={'268956': "Ula'tek"},
+         adds={'Spiteful Soulcoiler', 'Manifestation of Dread'}),
+    dict(slug='ulatek', name="Ula'tek", enc='3492', boss={'257758': "Ula'tek"},   # logged as a Vehicle (268956 is a short-lived copy)
          casts={'Rage of the Shackled', 'Call of the Serpent', "Serpent's Bite", 'Circling Prey', 'Spectral Coils', 'Caustic Waves',
                 'Grasping Fangs', "Mother's Wrath"},
          kicks={'Malice', 'Anguished Cry', 'Vicious Echoes'},
@@ -1148,7 +1207,8 @@ class FailParser:
             self.cur = dict(enc=r[1], t0=Parser.ts(l), clock=when[1][:8].split('.')[0], date=when[0], diff=int(r[3]), size=int(r[4]),
                             dur=0.0, kill=False, ended=False, lastT=0.0, hp={}, track={}, specGuid={}, died=[], npcDied=[],
                             dmg={}, heal={}, lasthit={}, casts={}, ctgt={}, auras={}, open={}, hits=[], npc=[], npcOpen={}, seen={},
-                            kicks=[], kickOpen={}, pulses={}, dispels=[], npos={}, spawns=[], spawnG={}, diedG=set(), btrack={})
+                            kicks=[], kickOpen={}, pulses={}, dispels=[], npos={}, spawns=[], spawnG={}, diedG=set(), btrack={},
+                            fixate=[], fixOpen={})
             return
         if c is None: return
         t = Parser.ts(l) - c['t0']; c['lastT'] = t
@@ -1232,6 +1292,13 @@ class FailParser:
             return
         # ---- debuffs on players, auras on NPCs, and debuffs going out raid-wide ('aura:' pulses)
         if ev.startswith('SPELL_AURA'):
+            # an add fixating a player (cfg fixate): [player, on, off, the add's unit id], to tell several adds of one kind apart
+            if sname in self.cfg.get('fixate', ()) and dst.startswith('Player-') and not src.startswith('Player-') and not self.owner(src):
+                key = (src, dst)
+                if ev == 'SPELL_AURA_APPLIED':
+                    a = c['fixOpen'][key] = [dst, t, None, src.rsplit('-', 1)[-1]]; c['fixate'].append(a)
+                elif ev == 'SPELL_AURA_REMOVED' and key in c['fixOpen']:
+                    c['fixOpen'].pop(key)[2] = t
             if not dst.startswith('Player-'):
                 if sname in self.cfg['npc'] and not self.owner(dst):     # [aura, unit, unit id, on, off, where the unit was, top stack]
                     key = (sname, dst)
@@ -1365,6 +1432,7 @@ class FailParser:
                         'hits': [[round(t, 2), nm(g), s, round(a), q] for t, g, s, a, q in p['hits']],
                         'pulses': {k: [[round(x[0], 2), sorted(nm(g) for g in x[1]), round(x[2])] for x in v] for k, v in p['pulses'].items()},
                         'spawns': [[round(t, 2), s, i] for t, s, i in p['spawns']],
+                        'fixate': [[nm(g), round(on, 2), r2(off), i] for g, on, off, i in p['fixate']],   # [player, on, off, add's unit id]
                         # [time it died (or was last seen), unit id, name, where, 'died' / 'gone' (never died: reached its goal or still up)]
                         'adds': [[round(t, 2), i, s, q, how] for t, i, s, q, how in adds],
                         'btrack': {b: [[round(t, 1), round(x, 1), round(y, 1)] for t, x, y in v] for b, v in p['btrack'].items()},
@@ -1661,7 +1729,7 @@ def site_files(root, with_data):
         dirs[:] = sorted(x for x in dirs if not x.startswith('.') and x not in ('server', '__pycache__'))
         for f in sorted(files):
             ext = os.path.splitext(f)[1].lower()
-            if f.startswith('.') or not (ext in PAGE_EXT or (with_data and ext in DATA_EXT)): continue
+            if f.startswith('.') or is_groups_file(f) or not (ext in PAGE_EXT or (with_data and ext in DATA_EXT)): continue
             out.append(os.path.relpath(os.path.join(d, f), root).replace(os.sep, '/'))
     return out
 
@@ -1686,19 +1754,48 @@ def send_site(up, root, with_data):
     return len(todo)
 
 
+def backup_groups(up, root):
+    """Copy the group picks saved on the boss pages (server) into the repo folder, so the repo stays a full backup."""
+    n = 0
+    for team, _ in TEAMS:
+        for page, sets in group_files().items():
+          for s in sets:
+            rel = f'data/{team}/{TIER}/{page}/groups-{s}.json'
+            try: text = up.get_text(rel)
+            except (urllib.error.URLError, OSError): continue
+            if text is None: continue
+            full = os.path.join(root, rel)
+            try:
+                if os.path.exists(full) and open(full, encoding='utf-8').read() == text: continue
+                os.makedirs(os.path.dirname(full), exist_ok=True)
+                with open(full, 'w', encoding='utf-8') as fh: fh.write(text)
+                n += 1
+            except OSError as e:
+                print(f'[{stamp()}] Could not save the group picks backup {full}: {e}')
+    if n: print(f'[{stamp()}] Saved {n} group pick file{"" if n == 1 else "s"} from the site into {root}.')
+
+
 def date_key(d):
     m, dd, y = (d or '01/01/1970').split('/')
     return f'{y}{int(m):02d}{int(dd):02d}'
 
-def night_entry(data, night_file):
-    pulls = data['pulls']
-    first = pulls[0] if pulls else {}
+def best_hp(pulls):
     # lowest boss health on a wipe (Twin Fangs pulls carry one health per boss: use the higher of the two)
     hps = [max(p['hp'].values()) if isinstance(p.get('hp'), dict) and p['hp'] else p.get('hp') for p in pulls if not p['kill']]
     hps = [h for h in hps if isinstance(h, (int, float))]
+    return min(hps) if hps else None
+
+def night_entry(data, night_file):
+    pulls = data['pulls']
+    first = pulls[0] if pulls else {}
+    # byDiff: pulls, kills and best health per difficulty, for the home page (a night can hold more than one difficulty)
+    by_diff = {}
+    for d in sorted({p.get('diff') for p in pulls if p.get('diff') is not None}):
+        ps = [p for p in pulls if p.get('diff') == d]
+        by_diff[str(d)] = {'pulls': len(ps), 'kills': sum(1 for p in ps if p['kill']), 'best': best_hp(ps)}
     return {'file': night_file, 'log': data['log'], 'date': first.get('date'), 'diff': first.get('diff'),
-            'pulls': len(pulls), 'kill': any(p['kill'] for p in pulls), 'best': min(hps) if hps else None,
-            'updated': data['updated']}
+            'pulls': len(pulls), 'kill': any(p['kill'] for p in pulls), 'best': best_hp(pulls),
+            'byDiff': by_diff, 'updated': data['updated']}
 
 def merge_index(idx, entry):
     idx = idx if isinstance(idx, dict) and 'nights' in idx else {'nights': []}
@@ -1752,7 +1849,87 @@ def find_fangs_note(sv_override=None):
     picks = [t for p, k, t in strings if p == ('NSRT',) and k == 'StoredSharedReminder' and twin(t)] + \
             [t for p, k, t in strings if p == ('NSRT', 'Reminders') and twin(t)]
     if not picks: return path, None, 'No Twin Fangs note in ' + path + ' (in WoW, type /reload after the note changes so WoW saves it)'
-    return path, picks[0], None
+    return path, fangs_section(picks[0]), None
+
+def fangs_section(note):
+    """Only the Twin Fangs part of a note that holds several bosses (EncounterID:<id> header lines)."""
+    if 'EncounterID:' not in note: return note
+    out, on = [], False
+    for line in note.split('\n'):
+        m = re.search(r'EncounterID:(\d+)', line)
+        if m: on = m.group(1) == '3421'
+        elif on: out.append(line)
+    return '\n'.join(out)
+
+# ---- the raid note the moment it arrives: the TaynalysisNotes addon (wow-addon/ in the repo) whispers the Twin Fangs lines
+# of each new note to you, and WoW writes chat to Logs/WoWChatLog.txt as it happens (WoW saves addon data only on /reload or
+# logout, which is too late). Lines: TAYNOTE <encounter> <note id = Unix time WoW saw it> <n>/<count> <time>~<who>~<text>
+CHAT_LOG = os.path.join(LOG_DIR, 'WoWChatLog.txt')
+TAYNOTE = re.compile(r'TAYNOTE (\d+) (\d+) (\d+)/(\d+) ([^~]*)~([^~]*)~(.*?)\s*$')
+
+def saved_note_sections(sv_override=None):
+    """The raid note in the saved NSRT file, per boss, in the addon's line shape: {encounter: [(times, who, text)]}."""
+    files = [sv_override] if sv_override else glob.glob(os.path.join(WOW_DIR, 'WTF', 'Account', '*', 'SavedVariables', 'NorthernSkyRaidTools.lua'))
+    files = [f for f in files if f and os.path.exists(f)]
+    if not files: return {}
+    note = next((s for p, k, s in nsrt_strings(max(files, key=os.path.getmtime)) if p == ('NSRT',) and k == 'StoredSharedReminder'), '')
+    out, cur = {}, None
+    for line in note.split('\n'):
+        m = re.search(r'EncounterID:(\d+)', line)
+        if m: cur = m.group(1); out.setdefault(cur, {}); continue
+        who, text, tm = re.search(r'tag:([^;]+)', line), re.search(r'text:([^;]+)', line), re.search(r'time:([\d.\-]+)', line)
+        if cur and who and text:
+            r = out[cur].setdefault((who.group(1), text.group(1)), [])
+            if tm: r.append(tm.group(1))
+    return {e: [(','.join(ts) or '0', w, x) for (w, x), ts in rows.items()] for e, rows in out.items() if rows}
+
+def note_text(lines):
+    """The addon's lines back in NSRT's note format; a long name list split over several lines is joined again."""
+    merged = {}
+    for a, b, c in lines:
+        a = a.split(',')[0]                    # the addon sends every time a reminder is set for; the first is enough here
+        k = (a, c); merged[k] = (merged[k] + ' ' + b) if k in merged else b
+    return '\n'.join(f'time:{a};tag:{b};text:{c}' for (a, c), b in merged.items())
+
+def record_note(up, page, lines, at):
+    """Keep a boss's raid note as it arrived, in that team's data/<team>/<tier>/<page>/groups-note.json:
+    {changes: [{at: Unix time, lines: [[times ("61,122" or "0"), who, text]]}]}. Pages can score pulls with the note that
+    was up when they started (Twin Fangs does, through its own files; the rest once their notes' assignments are known)."""
+    rel = f'{os.path.dirname(FANGS_DIR)}/{page}/groups-note.json'
+    try:
+        cur = up.get_text(rel); ch = json.loads(cur).get('changes', []) if cur else []
+    except (ValueError, OSError, urllib.error.URLError) as e:
+        print(f'[{stamp()}] Could not read {rel}: {e}'); return
+    rows = [list(x) for x in lines]
+    if ch and ch[-1].get('lines') == rows: return
+    ch.append({'at': int(at), 'lines': rows})
+    data = json.dumps({'changes': ch[-200:]}, ensure_ascii=False, indent=1).encode('utf-8')
+    up.put(rel, data); up.keep(rel, data)
+    print(f'[{stamp()}] Saved the {page} raid note ({len(rows)} lines) to {up.where}.')
+
+def chat_notes(state):
+    """New complete notes in the chat log since the last call: [(encounter, note id, [(time, who, text)])], oldest first."""
+    try: size = os.path.getsize(CHAT_LOG)
+    except OSError: return []
+    if 'pos' not in state or size < state['pos']: state['pos'] = max(0, size - 500000) if 'pos' not in state else 0
+    if size == state['pos']: return []
+    with open(CHAT_LOG, 'rb') as fh:
+        fh.seek(state['pos']); data = fh.read(size - state['pos'])
+    cut = data.rfind(b'\n') + 1; state['pos'] += cut          # leave a half-written last line for next time
+    parts, done, out = state.setdefault('parts', {}), state.setdefault('done', set()), []
+    for raw in data[:cut].decode('utf-8', 'replace').split('\n'):
+        m = TAYNOTE.search(raw)
+        if not m: continue
+        key, i, n = (m.group(1), int(m.group(2))), int(m.group(3)), int(m.group(4))
+        if key in done: continue
+        got = parts.setdefault(key, {}); got[i] = (m.group(5), m.group(6), m.group(7)); got['n'] = n
+    for key in sorted(parts, key=lambda k: k[1]):
+        got = parts[key]
+        if key not in done and all(i in got for i in range(1, got['n'] + 1)):
+            done.add(key)
+            out.append((key[0], key[1], [got[i] for i in range(1, got['n'] + 1)]))
+    for nid in [x for x in parts if x in done]: parts.pop(nid)
+    return out
 
 QKEYS = [('melee left', 'Melee left'), ('front melee', 'Front melee'), ('melee right', 'Melee right'), ('ranged left', 'Ranged left'), ('ranged right', 'Ranged right')]
 NOT_NAMES = {'everyone', 'melee', 'ranged', 'tank', 'healer', 'damager', 'dps'}
@@ -1820,15 +1997,53 @@ def write_setup(cfg):
     lines += [f'group {g}: {", ".join(cfg.get(f"group {g}", []))}' for g in (1, 2, 3)]
     return '\n'.join(lines) + '\n'
 
-def note_change(up, dry, out_dir, sv_override=None):
-    """Read the note, merge it into the team's setup.txt, and publish it (or write it to out_dir with --dry-run)."""
-    path, note, err = find_fangs_note(sv_override)
-    if err: print(f'[{stamp()}] {err}'); return
+KICK_CODE = {'melee left': 'ml', 'front melee': 'fm', 'melee right': 'mr', 'ranged left': 'rl', 'ranged right': 'rr'}
+
+def setup_groups(cfg):
+    """setup.txt's lists -> the page's group sets: feast {player: 1-3}, kicks {player: 'ml1' (melee left, 1st) ... 'backup1'}."""
+    feast = {n: g for g in (1, 2, 3) for n in cfg.get(f'group {g}', [])}
+    kicks = {n: f'{KICK_CODE[q]}{i + 1}' for q in KICK_CODE for i, n in enumerate(cfg.get(q, [])[:9])}
+    kicks.update({n: f'backup{i + 1}' for i, n in enumerate(cfg.get('backup', [])[:9])})
+    return {'feast': feast, 'kicks': kicks}
+
+def record_groups(up, before, after, at):
+    """Add the note's groups to groups-feast.json / groups-kicks.json, counting from `at` (when WoW saved the note), so pulls
+    before it keep their groups. The first time, the kick order defined until now goes in first, for every Mythic pull before
+    (past kick orders are never inferred; past feast groups are, on the page)."""
+    b, a, saved = setup_groups(before), setup_groups(after), []
+    for s in ('feast', 'kicks'):
+        rel = f'{FANGS_DIR}/groups-{s}.json'
+        try:
+            cur = up.get_text(rel)
+            ch = json.loads(cur).get('changes', []) if cur else []
+        except (ValueError, OSError, urllib.error.URLError) as e:
+            print(f'[{stamp()}] Could not read {rel}: {e}'); continue
+        if not ch and b[s] and s == 'kicks': ch.append({'at': 0, 'diffs': [16], 'groups': b[s]})   # past feast groups stay inferred
+        ch.sort(key=lambda c: c.get('at', 0))
+        if not a[s] or (ch and ch[-1]['groups'] == a[s]): continue
+        ch.append({'at': int(at), 'groups': a[s]})
+        data = json.dumps({'changes': ch[-500:]}, ensure_ascii=False, indent=1).encode('utf-8')
+        try: up.put(rel, data); up.keep(rel, data); saved.append(s)
+        except Exception as e: print(f'[{stamp()}] Could not save {rel}: {e}')
+    return saved
+
+def note_change(up, dry, out_dir, sv_override=None, auto=False, note=None, at=None):
+    """Read the note, merge it into the team's setup.txt, and publish it (or write it to out_dir with --dry-run).
+    auto: the uploader noticed WoW saved the note file, or the addon's lines in the chat log (note + at given); quiet unless
+    something changed."""
+    if note is None:
+        path, note, err = find_fangs_note(sv_override)
+        if err:
+            if not auto: print(f'[{stamp()}] {err}')
+            return
+        at = os.path.getmtime(path)
     found, warn = parse_fangs_note(note)
-    if not found: print(f'[{stamp()}] The Twin Fangs note has no kick or soak lines to copy.'); return
-    when = datetime.fromtimestamp(os.path.getmtime(path)).strftime('%I:%M %p').lstrip('0')
-    print(f'[{stamp()}] Read the Twin Fangs note (WoW saved it at {when}; type /reload in WoW first if it changed after that).')
-    for w in warn: print(f'           note: {w}')
+    if not found:
+        if not auto: print(f'[{stamp()}] The Twin Fangs note has no kick or soak lines to copy.')
+        return
+    when = datetime.fromtimestamp(at).strftime('%I:%M %p').lstrip('0')
+    if not auto: print(f'[{stamp()}] Read the Twin Fangs note (WoW saved it at {when}; type /reload in WoW first if it changed after that).')
+    for w in ([] if auto else warn): print(f'           note: {w}')
     if dry:
         cur_path = os.path.join(out_dir, SETUP_PATH)
         cur_text = open(cur_path, encoding='utf-8').read() if os.path.exists(cur_path) else ''
@@ -1841,7 +2056,13 @@ def note_change(up, dry, out_dir, sv_override=None):
     old = read_setup(cur_text)
     new = dict(old); new.update(found)                     # anything the note doesn't mention stays as it was
     changes = [(k, old.get(k, []), new.get(k, [])) for k in [q for q, _ in QKEYS] + ['backup', 'group 1', 'group 2', 'group 3'] if old.get(k, []) != new.get(k, [])]
-    if not changes: print(f'[{stamp()}] {SETUP_PATH} already matches the note. Nothing to change.'); return
+    if not dry and up.live:      # the history the page scores each pull with (also when setup.txt already matched)
+        saved = record_groups(up, old, new, at)
+        if saved and not changes: print(f'[{stamp()}] Raid note groups ({", ".join(saved)}) saved, counting from {when}.')
+    if not changes:
+        if not auto: print(f'[{stamp()}] {SETUP_PATH} already matches the note. Nothing to change.')
+        return
+    if auto: print(f'[{stamp()}] New Twin Fangs raid note at {when}; these count from then on:')
     for k, a, b in changes:
         print(f'           {k}: {", ".join(a) or "—"}  ->  {", ".join(b) or "—"}')
     text = write_setup(new)
@@ -1916,11 +2137,13 @@ def main():
         print(f'[{stamp()}] Sending every page and data file in {repo_dir} to {up.where}...')
         n = send_site(up, repo_dir, with_data=True)
         print(f'[{stamp()}] Sent {n} files. Open {SITE_URL} to check it.')
+        backup_groups(up, repo_dir)
         return
     if '--pages' in sys.argv:          # page files changed since the last send, and nothing else: raid data stays as the server has it
         if not use_server: sys.exit('--pages sends page files to your server; leave out --dry-run and --github.')
         up = connect_server()
         n = send_site(up, repo_dir, with_data=False)
+        backup_groups(up, repo_dir)
         print(f'[{stamp()}] ' + (f'Sent {n} changed page file{"" if n == 1 else "s"}. Open {SITE_URL} to check it.' if n else
                                  'No page files changed since the last send. Nothing to do.'))
         return
@@ -1932,6 +2155,7 @@ def main():
         up.keep_dir = repo_dir
         n = send_site(up, repo_dir, with_data=False)       # page changes since the last run go live now
         if n: print(f'[{stamp()}] Sent {n} changed page file{"" if n == 1 else "s"} to {up.where}.')
+        backup_groups(up, repo_dir)
     if up and not up.live:
         try: gh('GET', f'https://api.github.com/repos/{REPO}', up.token)
         except urllib.error.HTTPError as e:
@@ -1952,7 +2176,31 @@ def main():
     print(f'[{stamp()}] Watching {LOG_DIR} for pulls of every supported boss. Press Control-C to stop.')
     gap = 0 if (up and up.live) else MIN_UPLOAD_GAP      # your server takes every pull the moment it ends
     if not (up and up.live): print(f'[{stamp()}] Type "push" and press Return to upload right now instead of waiting.')
-    print(f'[{stamp()}] Type "notechange" and press Return to copy kicks and soak groups from the raid note into {SETUP_PATH}.')
+    print(f'[{stamp()}] The Twin Fangs raid note (kick order, soak groups) is picked up by itself: the moment it arrives with the '
+          'Taynalysis Notes addon, else whenever WoW saves it (/reload or logout).')
+    note_seen, chat_state = [None], {}      # when WoW last saved the NSRT file; how far the chat log has been read
+    def watch_note():
+        if dry or not (up and up.live): return
+        for enc, nid, lines in chat_notes(chat_state):
+            try:
+                page = note_pages().get(enc)
+                if page: record_note(up, page, lines, nid)
+                else: print(f'[{stamp()}] Raid note for encounter {enc}: not a boss this site has a page for, not kept.')
+                if enc == '3421':
+                    note_change(up, dry, out_dir, sv_override, auto=True, note=note_text(lines), at=nid)
+            except Exception as e: print(f'[{stamp()}] Could not use the raid note from the chat log: {e}')
+        try:
+            files = [sv_override] if sv_override else glob.glob(os.path.join(WOW_DIR, 'WTF', 'Account', '*', 'SavedVariables', 'NorthernSkyRaidTools.lua'))
+            m = max((os.path.getmtime(f) for f in files if f and os.path.exists(f)), default=None)
+        except OSError: return
+        if m is None or m == note_seen[0]: return
+        note_seen[0] = m
+        try:
+            for enc, rows in saved_note_sections(sv_override).items():     # every boss's note, as of when WoW saved the file
+                if enc in note_pages(): record_note(up, note_pages()[enc], rows, m)
+            note_change(up, dry, out_dir, sv_override, auto=True)
+        except Exception as e: print(f'[{stamp()}] Could not read the raid note: {e}')
+    watch_note()
     # only logs WoW writes to while the uploader runs: an older log (a past raid night) is never uploaded, so starting the
     # uploader before WoW opens tonight's log can't send last night's pulls (to this team or any other). --log still reads any log.
     started, waiting_on = time.time() - 5, None
@@ -2015,6 +2263,7 @@ def main():
     try:
         while True:
             cmd = ''
+            watch_note()
             if sys.stdin.isatty() and select.select([sys.stdin], [], [], 0)[0]:
                 cmd = sys.stdin.readline().strip().lower()
                 if cmd == 'notechange':

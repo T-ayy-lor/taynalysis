@@ -14,11 +14,14 @@
 <script>
 // The page is drawn by boss.js from this config (see the top of boss.js for what each part means).
 // The room in the game's coordinates: its middle and how far a spot is from its walls (the room sits turned 120 degrees)
-const ROOM = {c: [707, -374], rot: 120, half: [43, 47]};
+// (2026-11-02: half-sizes and offset measured from where the raid actually goes: 99% of positions inside, walls where the pools stop)
+const ROOM = {c: [707, -374], rot: 120, half: [48.5, 58.3], off: [0.7, 2.0]};
 const local = q => { const r = ROOM.rot * Math.PI / 180, u = -(q[1] - ROOM.c[1]), v = -(q[0] - ROOM.c[0]);
-  return [u * Math.cos(r) + v * Math.sin(r), -u * Math.sin(r) + v * Math.cos(r)]; };
+  return [u * Math.cos(r) + v * Math.sin(r) - ROOM.off[0], -u * Math.sin(r) + v * Math.cos(r) - ROOM.off[1]]; };
 const fromWall = q => { const l = local(q); return Math.min(ROOM.half[0] - Math.abs(l[0]), ROOM.half[1] - Math.abs(l[1])); };
 const MIDDLE = 15;   // a pool more than 15 yd from every wall is in the playable middle
+const NEAR = 8, STACK = 3;   // next to an earlier pool: within 8 yd; stacked: another pool dropped within 3 yd at the same time
+// (Clinging Murk goes out to 6-8 at once and they spread to ~15 yd apart; within 3 yd is standing on each other: 18% of pools)
 // Ula'tek's Dominance: on both golems at once, only while they're within 40 yd of each other
 const together = p => dedupe(npcAuras(p, "Ula'tek's Dominance"), 1.5, a => a[3]).map(a => {
   const off = Math.max(...npcAuras(p, "Ula'tek's Dominance").filter(b => Math.abs(b[3] - a[3]) < 1.5).map(b => b[4] != null ? b[4] : p.dur));
@@ -32,7 +35,12 @@ const dropSets = p => castsOf(p, 'Toxic Droplets').map((t, i, all) => { const en
 const pools = p => [...auras(p, 'Blighted Blood').map(a => ({n: a[0], t: a[2], pos: a[6], src: 'Blighted Blood',
     by: (p.dispels.find(d => d[2] === a[0] && d[3] === 'Blighted Blood' && Math.abs(d[0] - (a[2] || 0)) < 0.4) || [])[1] || null})),
   ...auras(p, 'Clinging Murk').map(a => ({n: a[0], t: a[2], pos: a[6], src: 'Clinging Murk', by: null}))]
-  .filter(x => x.t != null && x.pos).map(x => Object.assign(x, {mid: fromWall(x.pos) > MIDDLE})).sort((a, b) => a.t - b.t);
+  .filter(x => x.t != null && x.pos).sort((a, b) => a.t - b.t)
+  .map((x, i, all) => Object.assign(x, {mid: fromWall(x.pos) > MIDDLE,
+    // a middle pool is fine next to one already on the floor (pools go in a line); stacked = dropped on top of someone else's
+    nextTo: all.some(o => o.t < x.t - 0.5 && dist(o.pos, x.pos) < NEAR),
+    with: all.filter(o => o !== x && o.n !== x.n && Math.abs(o.t - x.t) < 1.5 && dist(o.pos, x.pos) < STACK).map(o => o.n)}));
+const badPool = x => x.mid && !x.nextTo;
 const contacts = (p, ability, gap = 2) => { const last = {}, out = [];
   hitsOf(p, ability).forEach(h => { if (last[h[1]] == null || h[0] - last[h[1]] > gap) out.push(h); last[h[1]] = h[0]; }); return out; };
 // Helical Toxins: a right merge takes both players to exactly 4 and removes both at once; a wrong one raises the stack;
@@ -48,8 +56,23 @@ const slimes = p => castsOf(p, 'Venom Coagulation').map(t => { const d = addsOf(
 const SLOW = 25;
 const CFG = {
   slug: 'entombed-sentinels', name: 'Entombed Sentinels', enc: ['3445'],
-  map: {src: 'img/maps/entombed-sentinels.webp', cal: {cx: 707, cy: -374, ppy: 4.498, rot: 120, center: [297.6, 291.9]}},
+  map: {src: 'img/maps/entombed-sentinels.webp', cal: {cx: 707, cy: -374, ppy: 4.0, rot: 120, center: [298.5, 277.5]}},   // 2026-11-02: fitted so the raid stays off the green poison border (0.56% of positions on it: knockbacks, deaths); was 4.5 px/yd, 14 px too far south
   modules: [
+    {id: 'helix', title: 'Helical Toxins',
+     one: p => ({head: ['Time', ['Player', 'l'], ['What went wrong', 'l']], rows: helical(p).map(x => [T(x.t), P(x.n), X(esc(x.what), 'bad')])}),
+     all: list => perPlayer(list, [{h: 'Merged wrong', get: p => helical(p).filter(x => x.what.startsWith('merged')).map(x => ({n: x.n, t: x.t}))},
+       {h: 'Ran out', get: p => helical(p).filter(x => x.what.startsWith('ran')).map(x => ({n: x.n, t: x.t}))},
+       {h: 'Died to it', get: p => helical(p).filter(x => x.what.startsWith('died')).map(x => ({n: x.n, t: x.t}))}]),
+     note: 'At each Vitriolic Stasis: touch one partner so your orbs add up to exactly 4 (1 finds 3, 2 finds 2). A wrong merge raises the stack (on Heroic, going over 4 kills); a toxin that runs out becomes Cultivated Burst.'},
+
+    {id: 'drop', title: 'Toxic Droplets',
+     one: p => ({head: ['Time', ['Soaked 3+', 'l'], 'Not soaked', ['Hit by Living Venom', 'l']], rows: dropSets(p).filter(s => s.over.length || s.blast.length || s.venom.length).map(s =>
+       [T(s.t), X(s.over.length ? s.over.map(([n, c]) => `${pname(n)} ${c}`).join(', ') : '<span class="dim">–</span>'), N(s.blast.length), PS(s.venom)])}),
+     all: list => perPlayer(list, [{h: 'Soaked 3+ in a set', get: p => dropSets(p).flatMap(s => s.over.map(([n]) => ({n, t: s.t})))},
+       {h: 'Hit by Living Venom', get: p => contacts(p, 'Living Venom', 1).map(h => ({n: h[1], t: h[0]}))}]),
+     foot: list => { const b = list.reduce((a, p) => a + pulsesOf(p, 'Noxious Blast').length, 0); return b ? `<b style="color:var(--crit)">${b} droplet${b === 1 ? '' : 's'} nobody popped (Noxious Blast on the raid).</b>` : ''; },
+     note: 'Pop every droplet before it blows up, one or two each: a third stacks too much damage on one player. On Heroic and Mythic a popped droplet sends Living Venom back to the Breath: dodge it.'},
+
     {id: 'dom', title: "Ula'tek's Dominance",
      one: p => ({head: ['Time', 'Seconds', 'Golems apart'], rows: together(p).map(x => [T(x.t), N(Math.max(1, Math.round(x.s))), V(x.br && x.bl ? Math.round(dist(x.br, x.bl)) + ' yd' : '–')])}),
      all: list => ({head: [['Pulls', 'l'], 'Times', 'Seconds'], rows: [[`<td class="l">${list.filter(p => together(p).length).length} of ${list.length}</td>`,
@@ -60,41 +83,22 @@ const CFG = {
        x.bl && {pos: x.bl, t: x.t, color: '#ff5a4a', tip: `<b>Blood of Ula'tek</b><br>in range of the Breath for ${Math.round(x.s)} s`}].filter(Boolean)),
        key: () => `<span>${keyDot('#5cc28a')}Breath</span><span>${keyDot('#ff5a4a')}Blood</span><span>where they were when Dominance went up</span>`}},
 
-    {id: 'drop', title: 'Toxic Droplets',
-     one: p => ({head: ['Time', ['Soaked 3+', 'l'], 'Not soaked', ['Hit by Living Venom', 'l']], rows: dropSets(p).filter(s => s.over.length || s.blast.length || s.venom.length).map(s =>
-       [T(s.t), X(s.over.length ? s.over.map(([n, c]) => `${pname(n)} ${c}`).join(', ') : '<span class="dim">–</span>'), N(s.blast.length), PS(s.venom)])}),
-     all: list => perPlayer(list, [{h: 'Soaked 3+ in a set', get: p => dropSets(p).flatMap(s => s.over.map(([n]) => ({n, t: s.t})))},
-       {h: 'Hit by Living Venom', get: p => contacts(p, 'Living Venom', 1).map(h => ({n: h[1], t: h[0]}))}]),
-     foot: list => { const b = list.reduce((a, p) => a + pulsesOf(p, 'Noxious Blast').length, 0); return b ? `<b style="color:var(--crit)">${b} droplet${b === 1 ? '' : 's'} nobody popped (Noxious Blast on the raid).</b>` : ''; },
-     note: 'Pop every droplet before it blows up, one or two each: a third stacks too much damage on one player. On Heroic and Mythic a popped droplet sends Living Venom back to the Breath: dodge it.'},
-
     {id: 'pool', title: 'Blood Venom pools', diffs: '15,16',
-     one: p => ({head: ['Time', ['Pool from', 'l'], ['Details', 'l']], rows: pools(p).filter(x => x.mid).map(x =>
-       [T(x.t), P(x.n), X(`${esc(x.src)}${x.src === 'Blighted Blood' ? (x.by ? ` · dispelled by ${pname(x.by)}` : ' · ran out') : ''} · <span class="bad">${Math.round(fromWall(x.pos))} yd from the wall</span>`, 'det')])}),
-     all: list => perPlayer(list, [{h: 'Pool in the middle', get: p => pools(p).filter(x => x.mid).map(x => ({n: x.n, t: x.t}))},
-       {h: 'Dispelled one in the middle', get: p => pools(p).filter(x => x.mid && x.by && x.by !== x.n).map(x => ({n: x.by, t: x.t}))},
-       {h: 'Stood in a pool', get: p => contacts(p, 'Blood Venom').map(h => ({n: h[1], t: h[0]}))}]),
-     foot: list => { const s = {}; list.forEach(p => contacts(p, 'Blood Venom').forEach(h => inc(s, h[1]))); const top = Object.entries(s).sort((a, b) => b[1] - a[1]).slice(0, 6);
-       return list.length === 1 && top.length ? `Stood in a pool: ${top.map(([n, c]) => `${pname(n)} ${c}`).join(', ')}.` : ''; },
-     note: `Blighted Blood (dispelled or run out) and Clinging Murk from the Unstable Miasma soak leave a Blood Venom pool where the player stands. Take them to the wall first; middle = over ${MIDDLE} yd from every wall.`,
-     overlay: {label: 'Pools', diffs: '15,16', get: p => pools(p).map(x => ({pos: x.pos, t: x.t, color: x.mid ? '#ff5a4a' : '#d8d2cf',
-       tip: `<b style="color:${color(x.n)}">${esc(x.n)}</b>'s pool (${esc(x.src)})${x.mid ? ' · middle' : ''}${x.by ? '<br>dispelled by ' + esc(x.by) : ''}`})),
-       key: () => `<span>${keyDot('#d8d2cf')}By a wall</span><span>${keyDot('#ff5a4a')}In the middle</span>`}},
+     one: p => ({head: ['Time', ['Pool from', 'l'], ['Stacked with', 'l']], rows: pools(p).filter(x => x.with.length).map(x =>
+       [T(x.t), P(x.n), X(`${x.with.map(pname).join(', ')} <span class="dim">· ${esc(x.src)}</span>`, 'det')])}),
+     all: list => perPlayer(list, [{h: 'Stacked when it dropped', get: p => pools(p).filter(x => x.with.length).map(x => ({n: x.n, t: x.t}))}]),
+     note: `Spread before Blighted Blood or Clinging Murk runs out: each leaves a Blood Venom pool where the player stands. Listed: pools dropped within ${STACK} yd of someone else's at the same moment. The map marks middle pools that aren't next to an earlier one.`,
+     overlay: {label: 'Pools', diffs: '15,16', get: p => pools(p).map(x => ({pos: x.pos, t: x.t, color: x.with.length ? '#f2a33a' : badPool(x) ? '#ff5a4a' : '#d8d2cf',
+       tip: `<b style="color:${color(x.n)}">${esc(x.n)}</b>'s pool (${esc(x.src)})${badPool(x) ? '<br>in the middle, not next to another pool' : ''}${x.with.length ? '<br>stacked with ' + x.with.map(esc).join(', ') : ''}`})),
+       key: () => `<span>${keyDot('#d8d2cf')}Fine</span><span>${keyDot('#ff5a4a')}In the middle, on its own</span><span>${keyDot('#f2a33a')}Stacked with someone</span>`}},
 
     {id: 'slime', title: 'Venom Coagulation',
-     one: p => ({head: ['Spawned', 'Killed after', 'Contaminate pulses', 'Raid damage'], rows: slimes(p).filter(s => !s.dead || s.s > SLOW).map(s =>
-       [T(s.t), s.dead ? N(Math.round(s.s) + ' s', s.s > SLOW ? 'bad' : '') : '<td class="num bad">not killed</td>', V(s.pulses.length), V(big(s.pulses.reduce((a, x) => a + x[2], 0)))])}),
-     all: list => ({head: [['Slime', 'l'], 'Pulls', 'Average kill', 'Not killed'], rows: (() => { const S = [];
-       list.forEach(p => slimes(p).forEach((s, i) => { const r = (S[i] ||= {n: 0, k: 0, s: 0, a: 0}); r.n++; if (s.dead){ r.k++; r.s += s.s; } else if (s.t < p.dur - 20) r.a++; }));
-       return S.map((r, i) => [`<td class="l">${i + 1}</td>`, V(r.n), N(r.k ? Math.round(r.s / r.k) + ' s' : 0, r.k && r.s / r.k > SLOW ? 'bad' : ''), N(r.a)]); })()}),
-     note: `It pulses Contaminate on the raid every 3 s until it dies: kill it first. Listed when it took over ${SLOW} s.`},
-
-    {id: 'helix', title: 'Helical Toxins',
-     one: p => ({head: ['Time', ['Player', 'l'], ['What went wrong', 'l']], rows: helical(p).map(x => [T(x.t), P(x.n), X(esc(x.what), 'bad')])}),
-     all: list => perPlayer(list, [{h: 'Merged wrong', get: p => helical(p).filter(x => x.what.startsWith('merged')).map(x => ({n: x.n, t: x.t}))},
-       {h: 'Ran out', get: p => helical(p).filter(x => x.what.startsWith('ran')).map(x => ({n: x.n, t: x.t}))},
-       {h: 'Died to it', get: p => helical(p).filter(x => x.what.startsWith('died')).map(x => ({n: x.n, t: x.t}))}]),
-     note: 'At each Vitriolic Stasis: touch one partner so your orbs add up to exactly 4 (1 finds 3, 2 finds 2). A wrong merge raises the stack (on Heroic, going over 4 kills); a toxin that runs out becomes Cultivated Burst.'},
+     one: p => ({head: ['Spawned', 'Killed after', 'Contaminate pulses', 'Raid damage'], rows: slimes(p).filter(s => s.dead && s.s > SLOW).map(s =>
+       [T(s.t), N(Math.round(s.s) + ' s', 'bad'), V(s.pulses.length), V(big(s.pulses.reduce((a, x) => a + x[2], 0)))])}),
+     all: list => ({head: [['Slime', 'l'], 'Killed', 'Average kill', `Over ${SLOW} s`], rows: (() => { const S = [];   // a slime still up at a wipe isn't counted: it stays until killed
+       list.forEach(p => slimes(p).forEach((s, i) => { if (!s.dead) return; const r = (S[i] ||= {k: 0, s: 0, slow: 0}); r.k++; r.s += s.s; if (s.s > SLOW) r.slow++; }));
+       return S.map((r, i) => [`<td class="l">${i + 1}</td>`, V(r.k), N(Math.round(r.s / r.k) + ' s', r.s / r.k > SLOW ? 'bad' : ''), N(r.slow)]); })()}),
+     note: `It pulses Contaminate on the raid every 3 s until it dies (it never goes away on its own): kill it first. Listed when it took over ${SLOW} s.`},
 
     {id: 'proto', title: 'Shifting Protovenom', diffs: '16',
      one: p => ({head: ['Time', ['Carrier', 'l'], ['Ran into', 'l']], rows: eruptions(p).map(e => [T(e.t), PS(e.carriers), PS(e.others)])}),
@@ -108,7 +112,7 @@ const CFG = {
   ],
   avoid: {names: ['Blood Venom', 'Living Venom', 'Deadly Venom'],
     short: {'Blood Venom': 'Pool', 'Living Venom': 'Slime', 'Deadly Venom': 'Venom'},
-    note: 'Damage taken from each (hover a number for how many hits; shields count). Blood Venom: standing in a pool. Living Venom: in the way of slime flying back to the Breath.'},
+    note: 'Damage taken from each, then how many hits (×N); shields count. Blood Venom: standing in a pool. Living Venom: in the way of slime flying back to the Breath.'},
   abilities: {'Shifting Protovenom': 1296878, 'Protovenom Eruption': 1296962, 'Cultivated Burst': 1284941, 'Helical Toxins': 1284590,
     "Ula'tek's Dominance": 1290193, 'Noxious Blast': 1284452, 'Toxic Droplets': 1284434, 'Blood Venom': 1284208, 'Living Venom': 1284207,
     'Vitriolic Stasis': 1284588, 'Venom Coagulation': 1284251, 'Contaminate': 1284257, 'Blighted Blood': 1284471, 'Unstable Miasma': 1288232,

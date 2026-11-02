@@ -1,6 +1,24 @@
 {
  "nights": [
   {
+   "file": "data/ac-mythic/venomous-abyss/kithix/WoWCombatLog-101426_202321.json",
+   "log": "WoWCombatLog-101426_202321.txt",
+   "date": "10/14/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.49,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.49
+    }
+   },
+   "updated": "2026-10-15T03:30:00+00:00",
+   "earlier": true
+  },
+  {
    "file": "data/ac-mythic/venomous-abyss/kithix/WoWCombatLog-102126_201753.json",
    "log": "WoWCombatLog-102126_201753.txt",
    "date": "10/21/2026",

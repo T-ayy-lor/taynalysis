@@ -1,0 +1,306 @@
+{
+ "nights": [
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-081926_201636.json",
+   "log": "WoWCombatLog-081926_201636.txt",
+   "date": "8/19/2026",
+   "diff": 14,
+   "pulls": 2,
+   "kill": true,
+   "best": 1.0,
+   "byDiff": {
+    "14": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 1.0
+    }
+   },
+   "updated": "2026-08-20T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-082026_170640.json",
+   "log": "WoWCombatLog-082026_170640.txt",
+   "date": "8/20/2026",
+   "diff": 15,
+   "pulls": 9,
+   "kill": false,
+   "best": 0.412,
+   "byDiff": {
+    "15": {
+     "pulls": 9,
+     "kills": 0,
+     "best": 0.412
+    }
+   },
+   "updated": "2026-08-21T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-082626_202317.json",
+   "log": "WoWCombatLog-082626_202317.txt",
+   "date": "8/26/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-08-27T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-083126_201802.json",
+   "log": "WoWCombatLog-083126_201802.txt",
+   "date": "8/31/2026",
+   "diff": 14,
+   "pulls": 2,
+   "kill": true,
+   "best": 1.0,
+   "byDiff": {
+    "14": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 1.0
+    }
+   },
+   "updated": "2026-09-01T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-090226_201533.json",
+   "log": "WoWCombatLog-090226_201533.txt",
+   "date": "9/2/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-09-03T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-090926_201349.json",
+   "log": "WoWCombatLog-090926_201349.txt",
+   "date": "9/9/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 1.0,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 1.0
+    }
+   },
+   "updated": "2026-09-10T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-091626_201838.json",
+   "log": "WoWCombatLog-091626_201838.txt",
+   "date": "9/16/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-09-17T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-092426_201815.json",
+   "log": "WoWCombatLog-092426_201815.txt",
+   "date": "9/24/2026",
+   "diff": 16,
+   "pulls": 5,
+   "kill": false,
+   "best": 0.618,
+   "byDiff": {
+    "16": {
+     "pulls": 5,
+     "kills": 0,
+     "best": 0.618
+    }
+   },
+   "updated": "2026-09-25T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-092426_210910.json",
+   "log": "WoWCombatLog-092426_210910.txt",
+   "date": "9/24/2026",
+   "diff": 16,
+   "pulls": 32,
+   "kill": false,
+   "best": 0.406,
+   "byDiff": {
+    "16": {
+     "pulls": 32,
+     "kills": 0,
+     "best": 0.406
+    }
+   },
+   "updated": "2026-09-25T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-092826_202009.json",
+   "log": "WoWCombatLog-092826_202009.txt",
+   "date": "9/28/2026",
+   "diff": 15,
+   "pulls": 3,
+   "kill": true,
+   "best": 0.961,
+   "byDiff": {
+    "15": {
+     "pulls": 3,
+     "kills": 1,
+     "best": 0.961
+    }
+   },
+   "updated": "2026-09-29T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-093026_201753.json",
+   "log": "WoWCombatLog-093026_201753.txt",
+   "date": "9/30/2026",
+   "diff": 16,
+   "pulls": 19,
+   "kill": false,
+   "best": 0.281,
+   "byDiff": {
+    "16": {
+     "pulls": 19,
+     "kills": 0,
+     "best": 0.281
+    }
+   },
+   "updated": "2026-10-01T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-100126_202529.json",
+   "log": "WoWCombatLog-100126_202529.txt",
+   "date": "10/1/2026",
+   "diff": 16,
+   "pulls": 38,
+   "kill": false,
+   "best": 0.126,
+   "byDiff": {
+    "16": {
+     "pulls": 38,
+     "kills": 0,
+     "best": 0.126
+    }
+   },
+   "updated": "2026-10-02T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-100526_201623.json",
+   "log": "WoWCombatLog-100526_201623.txt",
+   "date": "10/5/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-10-06T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-100726_201903.json",
+   "log": "WoWCombatLog-100726_201903.txt",
+   "date": "10/7/2026",
+   "diff": 16,
+   "pulls": 4,
+   "kill": false,
+   "best": 0.298,
+   "byDiff": {
+    "16": {
+     "pulls": 4,
+     "kills": 0,
+     "best": 0.298
+    }
+   },
+   "updated": "2026-10-08T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-100726_223126.json",
+   "log": "WoWCombatLog-100726_223126.txt",
+   "date": "10/7/2026",
+   "diff": 16,
+   "pulls": 18,
+   "kill": false,
+   "best": 0.295,
+   "byDiff": {
+    "16": {
+     "pulls": 18,
+     "kills": 0,
+     "best": 0.295
+    }
+   },
+   "updated": "2026-10-08T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-100826_201709.json",
+   "log": "WoWCombatLog-100826_201709.txt",
+   "date": "10/8/2026",
+   "diff": 16,
+   "pulls": 5,
+   "kill": true,
+   "best": 0.592,
+   "byDiff": {
+    "16": {
+     "pulls": 5,
+     "kills": 1,
+     "best": 0.592
+    }
+   },
+   "updated": "2026-10-09T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/entombed-sentinels/WoWCombatLog-101926_202253.json",
+   "log": "WoWCombatLog-101926_202253.txt",
+   "date": "10/19/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.784,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.784
+    }
+   },
+   "updated": "2026-10-20T03:00:00+00:00"
+  }
+ ]
+}

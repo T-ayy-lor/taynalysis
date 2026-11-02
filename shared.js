@@ -1,16 +1,18 @@
 // Teams, bosses and data folders, shared by every page. The uploader keeps the same team ids (TEAMS in taynalysis_uploader.py).
 // days: raid nights (0 = Sunday); start / end: raid hours, Eastern (the timelines span them); diff: the difficulty a boss page
 // opens on when the team has no pulls yet (14 Normal, 15 Heroic, 16 Mythic). A team's data stays its own whatever the difficulty.
+// extra: other raid nights with their own hours (AC Mythic's optional Heroic Mondays, 8:30-11 PM; Taylor 2026-11-02).
 const TEAMS = [
-  {id: 'ac-mythic',  name: 'Almost Casual Mythic',  days: [3, 4], start: '20:30', end: '23:30', diff: 16},
-  {id: 'ac-heroic',  name: 'Almost Casual Heroic',  days: [2],    start: '20:30', end: '23:30', diff: 15},
-  {id: 'ac-weekend', name: 'Almost Casual Weekend', days: [6],    start: '21:30', end: '24:00', diff: 15},
+  {id: 'ac-mythic',  name: 'AC Mythic (W/TR)',      days: [3, 4], start: '20:30', end: '23:30', diff: 16,
+   extra: [{days: [1], start: '20:30', end: '23:00'}]},
+  {id: 'ac-heroic',  name: 'AC Heroic (T)',         days: [2],    start: '20:30', end: '23:30', diff: 15},
+  {id: 'ac-weekend', name: 'AC Weekend (S)',        days: [6],    start: '21:30', end: '24:00', diff: 15},
 ];
 const TIER = 'venomous-abyss';                  // Midnight season 2 raid
 // in raid order; page = the boss's page file (without .html), only for bosses the site covers
 // false: "needs testing" pages can't be opened from the home page or the boss pickers (live site: tested pages only).
 // Set it to true to test them; their data still uploads either way.
-const SHOW_UNTESTED = false;
+const SHOW_UNTESTED = true;   // on since 2026-11-01 (Taylor), once the season's data was loaded
 const BOSSES = [   // test: page not checked against a raid night yet (shows "needs testing")
   {id: 'nekzali',            name: "Nek'zali",              page: 'nekzali',            test: true},
   {id: 'entombed-sentinels', name: 'Entombed Sentinels',    page: 'entombed-sentinels', test: true},
@@ -23,10 +25,127 @@ const BOSSES = [   // test: page not checked against a raid night yet (shows "ne
   {id: 'kithix',             name: "Kith'ix",               page: 'kithix',             test: true},   // its own one-boss raid (The Unbinding of Kith'ix), kept with this season's bosses
 ];
 const teamById = id => TEAMS.find(t => t.id === id) || null;
-// the team in the address (?team=...); boss pages opened without one (old links) show Almost Casual Mythic
+// the team in the address (?team=...); boss pages opened without one (old links) show AC Mythic
 const TEAM = teamById(new URLSearchParams(location.search).get('team')) || TEAMS[0];
 const dataDir = boss => `data/${TEAM.id}/${TIER}/${boss}/`;
-const bossUrl = (page, team) => `${page}.html?team=${encodeURIComponent(team)}`;
+// ---- raid hours: while the team is raiding (its nights and hours, Eastern) boss pages open on the newest night's latest
+// pull; any other time they open on every night with Overall everywhere (Taylor 2026-10-31). Decided once, on load.
+function inRaidHours(team = TEAM, now = new Date()){
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'})
+    .formatToParts(now).map(x => [x.type, x.value]));
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday), mins = +p.hour * 60 + +p.minute;
+  const toM = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+  // the main nights and any extra ones; hours past midnight (an end after 24:00) count on the next day's early morning
+  return [team, ...(team.extra || [])].some(w => { const s = toM(w.start), e = toM(w.end);
+    return w.days.some(d => (d === day && mins >= s && mins < Math.min(e, 1440)) || (e > 1440 && (d + 1) % 7 === day && mins < e - 1440)); });
+}
+const RAIDING = inRaidHours();
+const DEF_SCOPE = RAIDING ? 'latest' : 'all';   // what every module's Latest / Overall switch starts on
+// the night a boss page opens on: the newest during raid hours, else all nights (when there's more than one)
+const startNight = ns => !ns.length ? null : !RAIDING && ns.length > 1 ? 'all' : ns[ns.length - 1].key;
+
+// ---- "ignore events after N deaths": mechanics stop at the Nth raider death of each pull; meters (damage, healing,
+// dispels) keep the whole pull. One dropdown beside the difficulty buttons; off (–, the whole pull) by default ----
+let DEATH_CUT = 0;   // off by default (Taylor 2026-10-31)
+// when the pull's Nth death happened (Infinity when fewer died or the filter is off)
+function cutTime(p, n = DEATH_CUT){
+  if (!n) return Infinity;
+  const t = (p.deaths || []).map(d => d[0]).sort((a, b) => a - b);
+  return t.length >= n ? t[n - 1] : Infinity;
+}
+// one list of a pull trimmed at time T. Rules: 'row' = [t, ...] rows, 'num' = plain times, 'at:i' = rows timed at index i,
+// 'obj:f' = objects timed by field f, 'dict:<rule>' = a dict of such lists, or a function (list, T) => list
+function cutList(v, rule, T){
+  if (v == null) return v;
+  if (typeof rule === 'function') return rule(v, T);
+  if (rule.startsWith('dict:')){ const r = rule.slice(5); return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cutList(x, r, T)])); }
+  if (!Array.isArray(v)) return v;
+  if (rule === 'row') return v.filter(r => r[0] <= T);
+  if (rule === 'num') return v.filter(x => x <= T);
+  if (rule.startsWith('at:')){ const i = +rule.slice(3); return v.filter(r => r[i] <= T); }
+  if (rule.startsWith('obj:')){ const f = rule.slice(4); return v.filter(o => o[f] <= T); }
+  return v;
+}
+// a copy of the pull with every timed list in spec cut at the Nth death (the death itself still counts); cut = that time
+function cutPull(p, spec, n = DEATH_CUT){
+  const T = cutTime(p, n); if (T === Infinity) return p;
+  const q = {...p, cut: T};
+  Object.entries(spec).forEach(([k, r]) => { if (k in q) q[k] = cutList(q[k], r, T); });
+  return q;
+}
+// the dropdown, right after the difficulty buttons; onChange redraws the page
+function initDeathCut(onChange){
+  const seg = document.getElementById('diffSeg'); if (!seg || document.getElementById('deathCut')) return;
+  const lbl = (seg.previousElementSibling && seg.previousElementSibling.className) || 'lbl', w = document.createElement('span');
+  w.className = 'dcut'; w.style.cssText = 'display:inline-flex;align-items:center;gap:6px';
+  w.innerHTML = `<span class="${lbl}">Ignore events after</span><select id="deathCut" aria-label="Ignore mechanic events after this many deaths" style="padding:3px 6px;width:auto">` +
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20].map(n => `<option value="${n}"${n === DEATH_CUT ? ' selected' : ''}>${n}</option>`).join('') +
+    `<option value="0" title="Off: the whole pull"${DEATH_CUT ? '' : ' selected'}>–</option></select><span class="${lbl}">deaths</span>`;
+  w.title = 'Mechanics stop counting at that death in each pull (the death itself counts). Damage, healing and dispels keep the whole pull.';
+  seg.after(w);
+  w.querySelector('select').onchange = e => { DEATH_CUT = +e.target.value; onChange(); };
+}
+
+// ---- cards that end level with the card beside them scroll inside (.scrollfit); .more adds a fade at the bottom while
+// there's more below (no visible scroll bars anywhere) ----
+(() => {
+  const upd = el => el.classList.toggle('more', el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+  const all = () => document.querySelectorAll('.scrollfit').forEach(upd);
+  addEventListener('scroll', e => { const el = e.target; if (el.classList && el.classList.contains('scrollfit')) upd(el); }, true);
+  const ro = new ResizeObserver(all);
+  const watch = () => { document.querySelectorAll('.scrollfit').forEach(el => ro.observe(el)); all(); };
+  let q = false;
+  new MutationObserver(() => { if (!q){ q = true; requestAnimationFrame(() => { q = false; watch(); }); } })
+    .observe(document.documentElement, {childList: true, subtree: true});
+  addEventListener('load', watch);
+})();
+
+// ---- paired mechanic cards (.mods, two per row): a row ends where its shorter card ends and the taller card's table
+// scrolls inside, but never under PAIR_MIN (Taylor 2026-11-02: a long table beside a one-row card was squeezed to one
+// row); one column (narrow screens): every card at its own height ----
+const PAIR_MIN = 480;   // about 12 rows before a paired card scrolls (Taylor: it scrolled at too small a size)
+function fitPairs(){
+  document.querySelectorAll('.mods').forEach(g => {
+    const cards = [...g.children].filter(c => c.classList.contains('panel'));
+    cards.forEach(c => { c.style.height = ''; c.classList.remove('fit'); const tw = c.querySelector(':scope > .tw'); if (tw) tw.classList.remove('scrollfit', 'more'); });
+    if (getComputedStyle(g).gridTemplateColumns.split(' ').length < 2) return;
+    const rows = {};
+    cards.filter(c => c.offsetParent !== null).forEach(c => (rows[c.offsetTop] = rows[c.offsetTop] || []).push(c));
+    Object.values(rows).forEach(r => { if (r.length < 2) return;
+      const hs = r.map(c => c.offsetHeight), h = Math.min(Math.max(...hs), Math.max(PAIR_MIN, Math.min(...hs)));
+      r.forEach((c, i) => { c.style.height = h + 'px';
+        if (hs[i] > h){ c.classList.add('fit'); const tw = c.querySelector(':scope > .tw'); if (tw) tw.classList.add('scrollfit'); } }); });
+  });
+}
+(() => { let q = false; const later = () => { if (!q){ q = true; requestAnimationFrame(() => { q = false; fitPairs(); }); } };
+  new MutationObserver(later).observe(document.documentElement, {childList: true, subtree: true});
+  addEventListener('resize', later); addEventListener('load', later); document.fonts && document.fonts.ready.then(later); })();
+
+// ---- Wowhead tooltips (the in-game ability text) on ability names in buttons and table headings: the name is a Wowhead
+// link (Wowhead's script shows its tooltip on hover); clicking it still presses the button / sorts the column ----
+const whLink = (id, text) => id ? `<a class="ab" href="https://www.wowhead.com/spell=${id}" data-wowhead="spell=${id}" target="_blank" rel="noopener">${text}</a>` : text;
+const whRefresh = () => { try { if (window.$WowheadPower && $WowheadPower.refreshLinks) $WowheadPower.refreshLinks(); } catch (e) {} };
+document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a.ab'); if (a && a.closest('button, th')) e.preventDefault(); }, true);
+
+// ---- difficulty: picked on the home page, carried in the address (?diff=14|15|16) and kept in sync by every boss page ----
+const URL_DIFF = (d => [14, 15, 16].includes(d) ? d : null)(+new URLSearchParams(location.search).get('diff'));
+// a boss page's address; diff defaults to the one in this page's address, so the boss pickers keep the difficulty
+const bossUrl = (page, team, diff = new URLSearchParams(location.search).get('diff')) =>
+  `${page}.html?team=${encodeURIComponent(team)}${diff ? '&diff=' + diff : ''}`;
+// a boss page's first difficulty: the address's if this boss has pulls on it, else the newest pull's, else the team's usual one
+function startDiff(all){
+  if (URL_DIFF && all.some(p => p.diff === URL_DIFF)) return URL_DIFF;
+  const last = all[all.length - 1]; return last ? last.diff : TEAM.diff;
+}
+// after each render: difficulties with no pulls on any night can't be clicked; the address and the team link follow the current one
+function syncDiff(all, cur){
+  document.querySelectorAll('#diffSeg button').forEach(b => { const d = +b.dataset.d;
+    b.disabled = d !== cur && !all.some(p => p.diff === d);
+    b.title = b.disabled ? `No ${{14: 'Normal', 15: 'Heroic', 16: 'Mythic'}[d]} pulls yet` : ''; });
+  const u = new URL(location.href);
+  if (u.searchParams.get('diff') !== String(cur)){ u.searchParams.set('diff', cur); history.replaceState(history.state, '', u); }
+  const tl = document.getElementById('teamLink'); if (tl) tl.href = './?team=' + encodeURIComponent(TEAM.id) + '&diff=' + cur;
+}
 // ---- raid-night timeline (on every boss page), shown in each viewer's own time zone ----
 // Logs record the logger's clock. Nights uploaded from Nov 2026 on also carry its UTC offset (tz, hours); older nights
 // were all logged in Eastern, so they're read as Eastern.
@@ -64,13 +183,26 @@ function drawAvoid(el, hits, order, short, H){
   const P = {}, used = new Set();
   hits.forEach(h => { const c = ((P[h[1]] ||= {})[h[2]] ||= {d: 0, n: 0}); c.d += h[3]; c.n++; used.add(h[2]); });
   const abs = order.filter(a => used.has(a)), tot = n => abs.reduce((a, k) => a + ((P[n][k] || {}).d || 0), 0);
+  const hitsOf = n => abs.reduce((a, k) => a + ((P[n][k] || {}).n || 0), 0);
   const rows = Object.keys(P).filter(n => tot(n) > 0).sort((a, b) => tot(b) - tot(a) || H.order(a, b));
-  const draw = fmt => { el.innerHTML = `<tr><th class="w">Player</th>${abs.map(a => `<th class="ab" title="${tlEsc(a)}"><span class="lg">${tlEsc(a)}</span><span class="sh">${tlEsc(short[a] || a)}</span></th>`).join('')}<th>Total</th></tr>` +
-    (rows.length ? rows.map(n => `<tr><td>${H.pname(n)}</td>${abs.map(a => { const c = P[n][a]; return c ? `<td class="n" title="${c.n} hit${c.n === 1 ? '' : 's'}">${fmt(c.d)}</td>` : '<td class="n z">–</td>'; }).join('')}<td class="n bad">${fmt(tot(n))}</td></tr>`).join('')
+  // each cell: the damage, then how many hits it took (×N, muted); stacked under the damage when the table is tight.
+  // data-v keeps the sort on the damage
+  const hc = (n, stack) => `<span style="color:var(--muted);font-weight:400;font-size:.8em;${stack ? 'display:block;line-height:1.1' : 'margin-left:.3em'}">×${n}</span>`;
+  const sp = a => H.spell && H.spell(a);   // the ability's spell id: its heading gets the Wowhead tooltip
+  const draw = (fmt, stack) => { el.innerHTML = `<tr><th class="w">Player</th>${abs.map(a => `<th class="ab"${sp(a) ? '' : ` title="${tlEsc(a)}"`}><span class="lg">${whLink(sp(a), tlEsc(a))}</span><span class="sh">${whLink(sp(a), tlEsc(short[a] || a))}</span></th>`).join('')}<th>Total</th></tr>` +
+    (rows.length ? rows.map(n => `<tr><td>${H.pname(n)}</td>${abs.map(a => { const c = P[n][a]; return c ? `<td class="n" data-v="${c.d}" title="${c.n} hit${c.n === 1 ? '' : 's'}">${fmt(c.d)}${hc(c.n, stack)}</td>` : '<td class="n z">–</td>'; }).join('')}<td class="n bad" data-v="${tot(n)}">${fmt(tot(n))}${hc(hitsOf(n), stack)}</td></tr>`).join('')
       : `<tr><td class="z">—</td><td class="n z">0</td></tr>`); };
-  draw(stBig); el.classList.add('st'); el.classList.remove('narrow', 'vert');   // shorter headings, then upright ones and rounder numbers, when it doesn't fit
-  if (el.scrollWidth > el.parentNode.clientWidth + 1) el.classList.add('narrow');
-  if (el.scrollWidth > el.parentNode.clientWidth + 1){ el.classList.add('vert'); draw(stRound); }
+  // when it doesn't fit: hit counts under the damage, then shorter headings, then upright ones and rounder numbers
+  const over = () => el.scrollWidth > el.parentNode.clientWidth + 1;
+  el.classList.add('st'); el.classList.remove('narrow', 'vert'); el.style.fontSize = ''; draw(stBig, false);
+  if (over()) draw(stBig, true);
+  if (over()) el.classList.add('narrow');
+  if (over()){ el.classList.add('vert'); draw(stRound, true); }
+  if (over()) el.querySelectorAll('th, td').forEach(c => { c.style.paddingLeft = '3px'; });   // then tighter cells
+  for (let fs = .74; over() && fs > .54; fs -= .04) el.style.fontSize = fs + 'rem';             // then smaller text, until it fits
+  // measured before the page's font arrived: check again once it has
+  if (document.fonts && document.fonts.status !== 'loaded') document.fonts.ready.then(() => { if (over()) drawAvoid(el, hits, order, short, H); });
+  whRefresh();
 }
 // a bar meter; rows: [[name, value, text]] best first
 function drawBars(el, rows, H, short){
@@ -119,7 +251,7 @@ function sortStd(){
     const s = ST_SORT[key]; if (!s) return;
     const ci = hs.findIndex(th => (th.querySelector('.lg') || th).textContent.trim() === s.h); if (ci < 0) return;
     hs[ci].classList.add(s.dir > 0 ? 'asc' : 'desc');
-    const val = td => { const x = td ? td.textContent.trim() : ''; const k = x.match(/^(-?\d+(\.\d+)?)([KMB])$/); if (k) return +k[1] * {K: 1e3, M: 1e6, B: 1e9}[k[3]];
+    const val = td => { if (td && td.dataset.v != null) return +td.dataset.v; const x = td ? td.textContent.trim() : ''; const k = x.match(/^(-?\d+(\.\d+)?)([KMB])$/); if (k) return +k[1] * {K: 1e3, M: 1e6, B: 1e9}[k[3]];
       const m = x.match(/^(\d+):(\d\d)$/); if (m) return +m[1] * 60 + +m[2]; return /^-?\d+(\.\d+)?$/.test(x) ? +x : x === '' || x === '–' || x === '—' ? null : x.toLowerCase(); };
     const isBlank = r => [...r.cells].some(c => c.textContent.trim() === '—');   // placeholder rows stay at the bottom
     const data = rows.slice(1).filter(r => !isBlank(r)), blank = rows.slice(1).filter(isBlank);
@@ -153,6 +285,8 @@ async function checkActivity(){   // true when something new arrived
 // pulls: [{key, date, clock, tz, dur, kill, diff, title}]}] oldest first; o: {enc: this boss's encounter ids, name, diff, sel: selected pull key}.
 // Each night spans the team's raid hours; trash and other bosses come from ACT.
 function drawTimeline(nights, o){
+  // All nights: only the nights this boss was pulled on the chosen difficulty (Taylor 2026-11-02); one night always shows
+  if (nights.length > 1) nights = nights.filter(n => n.pulls.some(p => p.diff === o.diff));
   const H = raidHours(), span = H.span * 1000, today = new Date();
   const ref = nights.length ? H.startOf(nights[nights.length - 1].date) : H.startOf(`${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`);
   const n30 = Math.round(H.span / 1800), ticks = Array.from({length: n30 - 1}, (_, i) => `<i style="left:${(i + 1) / n30 * 100}%"></i>`).join('');
@@ -189,3 +323,68 @@ function drawTimeline(nights, o){
   b.innerHTML = BOSSES.filter(x => x.page && (!x.test || SHOW_UNTESTED || x.page === cur)).map(x => `<option value="${x.page}"${x.page === cur ? ' selected' : ''}>${tlEsc(x.name)}</option>`).join('');
 })();
 
+
+// ---- group picks (Twin Fangs feast groups and kick order; Taylor 2026-11-02) ----
+// data/<team>/<tier>/<boss>/groups-<set>.json = {changes: [{at: UTC seconds (0 = from the start), groups: {player: value},
+// diffs?: [difficulties it applies to]}]}. Written by the uploader when the NSRT raid note changes (on its own, whenever WoW
+// saves it) and by the page's Edit groups (the server's PUT /api/groups/<team>/<tier>/<boss>/<set>, with the editor key,
+// which can save group picks and nothing else). A pull uses the last change made before it started, so a change never
+// rewrites the pulls before it.
+const EDITOR_KEY = 'tay-editor-key';
+async function loadGroups(boss, set){
+  try { const r = await fetch(dataDir(boss) + `groups-${set}.json?t=` + Date.now(), {cache: 'no-store'}); if (!r.ok) return null;
+    const j = await r.json(); return Array.isArray(j.changes) ? j.changes.slice().sort((a, b) => a.at - b.at) : null; } catch (e) { return null; }
+}
+function groupsAt(changes, utcMs, diff){   // the groups in force at that moment on that difficulty, or null when none was saved yet
+  let g = null; (changes || []).forEach(c => { if (c.at * 1000 <= utcMs && (!c.diffs || diff == null || c.diffs.includes(diff))) g = c.groups; }); return g;
+}
+const pullUtc = p => wallToUtc(p.date, p.clock, p.tz);
+(() => { const s = document.createElement('style'); s.textContent = `
+details.grped{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+details.grped summary{cursor:pointer;color:var(--muted);font:600 .85rem var(--f-body)}
+.grped .gg{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 12px;margin:10px 0}
+.grped label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem;min-width:0}
+.grped label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grped select,.grped input{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;font:inherit;font-size:.85rem;padding:2px 4px}
+.grped .gact{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.grped button{background:none;color:var(--ink);border:1px solid var(--line);border-radius:6px;font:600 .8rem var(--f-body);padding:5px 10px;cursor:pointer}
+.grped button.pri{border-color:var(--accent);color:var(--accent)}
+.grped .gmsg{font-size:.8rem;color:var(--muted)} .grped .gmsg.bad{color:var(--crit)}
+.grped .ghist{font-size:.78rem;color:var(--muted);margin-top:6px}`; document.head.appendChild(s); })();
+// el: a box under the card's table. o: {boss, set, options ([value, label] per choice), names (players to list), current
+// (values now), changes (history), onSaved(changes)}. While it's open the page's re-renders leave it alone (picks stay).
+function groupEditor(el, o){
+  const open = el.querySelector('details.grped') && el.querySelector('details.grped').open;
+  if (open) return;
+  const cur = o.current || {}, names = [...new Set([...o.names, ...Object.keys(cur)])];
+  const opt = n => `<option value="">–</option>` + o.options.map(([v, l]) => `<option value="${v}"${String(cur[n]) === String(v) ? ' selected' : ''}>${l}</option>`).join('');
+  const fmt = c => c.at ? new Date(c.at * 1000).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : 'every pull';
+  const histText = ch => { const h = (ch || []).slice(-4).reverse().map(fmt).join(' · ');
+    return h ? `Saved changes (newest first): ${h}. Each pull uses the groups saved before it started.` : 'Nothing saved yet. "Save for every pull" sets the groups for all pulls, past ones too; "Save from now on" only changes pulls that start after you save.'; };
+  let key = ''; try { key = localStorage.getItem(EDITOR_KEY) || ''; } catch (e) {}
+  el.innerHTML = `<details class="grped"${open ? ' open' : ''}><summary>${o.title || 'Edit groups'}</summary>
+    <div class="gg">${names.map(n => `<label><span>${typeof pname === 'function' ? pname(n) : n}</span><select data-n="${n.replace(/"/g, '&quot;')}" aria-label="${o.label || 'Group'} for ${n.replace(/"/g, '&quot;')}">${opt(n)}</select></label>`).join('')}</div>
+    <div class="gact"><input type="password" class="gkey" placeholder="Editor key" aria-label="Editor key"${key ? ' hidden' : ''}>
+      <button type="button" class="pri" data-from="now">Save from now on</button><button type="button" data-from="all">Save for every pull</button>
+      <span class="gmsg"></span></div>
+    <div class="ghist">${histText(o.changes)}</div></details>`;
+  const msg = (t, bad) => { const m = el.querySelector('.gmsg'); m.textContent = t; m.classList.toggle('bad', !!bad); };
+  el.querySelectorAll('button[data-from]').forEach(b => b.onclick = async () => {
+    const groups = {}; el.querySelectorAll('select[data-n]').forEach(s => { if (s.value) groups[s.dataset.n] = /^\d+$/.test(s.value) ? +s.value : s.value; });
+    const ki = el.querySelector('.gkey'); let k = key || ki.value.trim();
+    if (!k){ ki.hidden = false; ki.focus(); msg('Type the editor key first (the server setup printed it).', true); return; }
+    if (b.dataset.from === 'all' && !confirm('Use these groups for every pull, including all past ones? This replaces every earlier change.')) return;
+    msg('Saving…');
+    try {
+      const r = await fetch(`api/groups/${TEAM.id}/${TIER}/${o.boss}/${o.set}`, {method: 'PUT', headers: {'Authorization': 'Bearer ' + k, 'Content-Type': 'application/json'},
+        body: JSON.stringify({groups, from: b.dataset.from})});
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401){ try { localStorage.removeItem(EDITOR_KEY); } catch (e) {} key = ''; ki.hidden = false; ki.value = ''; msg('The server didn\'t accept that editor key.', true); return; }
+      if (!r.ok || !j.ok){ msg(j.error || `Couldn't save (${r.status}).`, true); return; }
+      try { localStorage.setItem(EDITOR_KEY, k); } catch (e) {}
+      key = k; ki.hidden = true; msg('Saved.');
+      const ch = j.changes.slice().sort((a, c) => a.at - c.at); el.querySelector('.ghist').textContent = histText(ch);
+      o.onSaved && o.onSaved(ch);
+    } catch (e) { msg('Couldn\'t reach the server.', true); }
+  });
+}

@@ -1,10 +1,173 @@
 {
  "nights": [
   {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-081926_201636.json",
+   "log": "WoWCombatLog-081926_201636.txt",
+   "date": "8/19/2026",
+   "updated": "2026-08-20T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-082026_170640.json",
+   "log": "WoWCombatLog-082026_170640.txt",
+   "date": "8/20/2026",
+   "updated": "2026-08-21T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-082626_202317.json",
+   "log": "WoWCombatLog-082626_202317.txt",
+   "date": "8/26/2026",
+   "updated": "2026-08-27T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-082726_170239.json",
+   "log": "WoWCombatLog-082726_170239.txt",
+   "date": "8/27/2026",
+   "updated": "2026-08-28T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-083126_201802.json",
+   "log": "WoWCombatLog-083126_201802.txt",
+   "date": "8/31/2026",
+   "updated": "2026-09-01T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-090226_201533.json",
+   "log": "WoWCombatLog-090226_201533.txt",
+   "date": "9/2/2026",
+   "updated": "2026-09-03T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-090326_201544.json",
+   "log": "WoWCombatLog-090326_201544.txt",
+   "date": "9/3/2026",
+   "updated": "2026-09-04T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-090726_202058.json",
+   "log": "WoWCombatLog-090726_202058.txt",
+   "date": "9/7/2026",
+   "updated": "2026-09-08T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-090926_201349.json",
+   "log": "WoWCombatLog-090926_201349.txt",
+   "date": "9/9/2026",
+   "updated": "2026-09-10T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-091026_201519.json",
+   "log": "WoWCombatLog-091026_201519.txt",
+   "date": "9/10/2026",
+   "updated": "2026-09-11T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-091626_201838.json",
+   "log": "WoWCombatLog-091626_201838.txt",
+   "date": "9/16/2026",
+   "updated": "2026-09-17T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-091726_201618.json",
+   "log": "WoWCombatLog-091726_201618.txt",
+   "date": "9/17/2026",
+   "updated": "2026-09-18T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-092326_201630.json",
+   "log": "WoWCombatLog-092326_201630.txt",
+   "date": "9/23/2026",
+   "updated": "2026-09-24T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-092426_201815.json",
+   "log": "WoWCombatLog-092426_201815.txt",
+   "date": "9/24/2026",
+   "updated": "2026-09-25T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-092426_210910.json",
+   "log": "WoWCombatLog-092426_210910.txt",
+   "date": "9/24/2026",
+   "updated": "2026-09-25T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-092826_202009.json",
+   "log": "WoWCombatLog-092826_202009.txt",
+   "date": "9/28/2026",
+   "updated": "2026-09-29T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-093026_201753.json",
+   "log": "WoWCombatLog-093026_201753.txt",
+   "date": "9/30/2026",
+   "updated": "2026-10-01T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-100126_202529.json",
+   "log": "WoWCombatLog-100126_202529.txt",
+   "date": "10/1/2026",
+   "updated": "2026-10-02T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-100526_201623.json",
+   "log": "WoWCombatLog-100526_201623.txt",
+   "date": "10/5/2026",
+   "updated": "2026-10-06T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-100726_201903.json",
+   "log": "WoWCombatLog-100726_201903.txt",
+   "date": "10/7/2026",
+   "updated": "2026-10-08T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-100726_223126.json",
+   "log": "WoWCombatLog-100726_223126.txt",
+   "date": "10/7/2026",
+   "updated": "2026-10-08T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-100826_201709.json",
+   "log": "WoWCombatLog-100826_201709.txt",
+   "date": "10/8/2026",
+   "updated": "2026-10-09T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-101426_202321.json",
+   "log": "WoWCombatLog-101426_202321.txt",
+   "date": "10/14/2026",
+   "updated": "2026-10-15T03:30:00+00:00",
+   "earlier": true
+  },
+  {
    "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-101526_202041.json",
    "log": "WoWCombatLog-101526_202041.txt",
    "date": "10/15/2026",
    "updated": "2026-10-31T22:53:31+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-101926_202253.json",
+   "log": "WoWCombatLog-101926_202253.txt",
+   "date": "10/19/2026",
+   "updated": "2026-10-20T03:00:00+00:00"
   },
   {
    "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-102126_201753.json",

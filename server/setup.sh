@@ -67,9 +67,13 @@ if [ ! -s "$CONF/upload-token" ]; then
   python3 -c 'import secrets; print(secrets.token_hex(32))' > "$CONF/upload-token"
   NEW_TOKEN=1
 fi
-chown root:"$SVC_USER" "$CONF" "$CONF/upload-token"
+# editor key: lets a boss page save group picks (Twin Fangs feast groups and kick order) and nothing else
+if [ ! -s "$CONF/editor-key" ]; then
+  python3 -c 'import secrets; print(secrets.token_urlsafe(18))' > "$CONF/editor-key"
+fi
+chown root:"$SVC_USER" "$CONF" "$CONF/upload-token" "$CONF/editor-key"
 chmod 750 "$CONF"
-chmod 640 "$CONF/upload-token"
+chmod 640 "$CONF/upload-token" "$CONF/editor-key"
 cat > /etc/systemd/system/taynalysis-upload.service <<UNITEOF
 [Unit]
 Description=Taynalysis upload service
@@ -80,6 +84,7 @@ User=$SVC_USER
 Group=$SVC_USER
 Environment=TAYNALYSIS_SITE=$SITE
 Environment=TAYNALYSIS_TOKEN_FILE=$CONF/upload-token
+Environment=TAYNALYSIS_EDITOR_FILE=$CONF/editor-key
 Environment=TAYNALYSIS_PORT=8787
 ExecStart=/usr/bin/python3 $APP/upload_server.py
 Restart=always
@@ -142,4 +147,8 @@ echo
 echo "   $(cat "$CONF/upload-token")"
 echo
 echo " The uploader on your Mac asks for it once and saves it."
+echo
+echo " Editor key (only saves group picks on the boss pages; the page asks for it once):"
+echo
+echo "   $(cat "$CONF/editor-key")"
 echo "================================================================"

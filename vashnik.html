@@ -30,12 +30,18 @@ const LATE = 10;
 const infections = p => auras(p, 'Exploding Infection').filter(a => a[2] != null).map(a => ({n: a[0], t: a[2], st: a[3],
   by: (p.dispels.find(d => d[2] === a[0] && d[3] === 'Exploding Infection' && Math.abs(d[0] - a[2]) < 0.4) || [])[1] || null}))
   .sort((a, b) => a.t - b.t).map((x, i, all) => Object.assign(x, {together: all.some(y => y !== x && y.by && Math.abs(y.t - x.t) < 2 && y.t < x.t)}));
-const contacts = (p, ability, gap = 2) => { const last = {}, out = [];
-  hitsOf(p, ability).forEach(h => { if (last[h[1]] == null || h[0] - last[h[1]] > gap) out.push(h); last[h[1]] = h[0]; }); return out; };
 const CFG = {
   slug: 'vashnik', name: 'Vashnik', enc: ['3455'],
   map: {src: 'img/maps/vashnik.webp', cal: {cx: 451.8, cy: -273, ppy: 6.699, rot: -150, center: [516.7, 287.1]}},
   modules: [
+    {id: 'froth', title: 'Plague Froth',
+     one: p => ({head: ['Time', ['Coated', 'l'], ['Hit by their waves', 'l']], rows: froth(p).filter(f => f.hit.length).map(f => [T(f.t), PS(f.targets), PS(f.hit)])}),
+     all: list => perPlayer(list, [{h: 'Hit by a Plague Wave', get: p => froth(p).flatMap(f => f.hit.map(n => ({n, t: f.t})))}]),
+     note: 'Coated players move away from the raid; when it ends, Plague Waves go out in the four directions from them. Everyone stands off those lines.',
+     overlay: {label: 'Plague Froth', get: p => froth(p).flatMap(f => [...f.pos.filter(Boolean).map((q, i) => ({pos: q, t: f.t, color: '#b58cff', tip: `<b>${esc(f.targets[i] || '')}</b> released Plague Waves here`})),
+       ...f.hit.map(n => ({pos: posAt(p, n, f.t + 1), n, t: f.t, mark: 'cross', color: '#ff5a4a', tip: `<b style="color:${color(n)}">${esc(n)}</b> hit by a Plague Wave`}))]),
+       key: () => `<span>${keyDot('#b58cff')}Where the waves came from</span><span>${keyCross('#ff5a4a')}Hit by one</span>`}},
+
     {id: 'venom', title: 'Living venoms',
      one: p => ({head: ['Imbibe', 'Reached the cavity', 'Went Hardened', 'Burning killed together'], rows: imbibes(p).map((t, i) => {
        const w = x => waveOf(p, x) === i + 1, c = [pulsesOf(p, 'Malignant Burst').filter(x => w(x[0])).length, npcAuras(p, 'Hardened Venom').filter(a => w(a[3])).length, surgesStacked(p).filter(x => w(x[0])).length];
@@ -49,15 +55,6 @@ const CFG = {
        return {pos: a[3], t: a[0], mark: got ? 'cross' : 'dot', color: got ? '#ff5a4a' : a[2] === 'Burning Venom' ? '#e5b04a' : a[2] === 'Shrouded Venom' ? '#b58cff' : '#d8d2cf',
          tip: `<b>${esc(a[2])}</b><br>${got ? 'reached the cavity' : 'killed here'}`}; }),
        key: () => `<span>${keyDot('#e5b04a')}Burning</span><span>${keyDot('#b58cff')}Shrouded</span><span>${keyDot('#d8d2cf')}Clotting</span><span>${keyCross('#ff5a4a')}Reached the cavity</span>`}},
-
-    {id: 'froth', title: 'Plague Froth',
-     one: p => ({head: ['Time', ['Coated', 'l'], ['Hit by their waves', 'l']], rows: froth(p).filter(f => f.hit.length).map(f => [T(f.t), PS(f.targets), PS(f.hit)])}),
-     all: list => perPlayer(list, [{h: 'Hit by a Plague Wave', get: p => froth(p).flatMap(f => f.hit.map(n => ({n, t: f.t})))},
-       {h: 'Next to a coated player', get: p => contacts(p, 'Plague Froth').filter(h => !hadAura(p, h[1], '#1281913', h[0], 1)).map(h => ({n: h[1], t: h[0]}))}]),
-     note: 'Coated players move away from the raid; when it ends, Plague Waves go out in the four directions from them. Everyone stands off those lines.',
-     overlay: {label: 'Plague Froth', get: p => froth(p).flatMap(f => [...f.pos.filter(Boolean).map((q, i) => ({pos: q, t: f.t, color: '#b58cff', tip: `<b>${esc(f.targets[i] || '')}</b> released Plague Waves here`})),
-       ...f.hit.map(n => ({pos: posAt(p, n, f.t + 1), n, t: f.t, mark: 'cross', color: '#ff5a4a', tip: `<b style="color:${color(n)}">${esc(n)}</b> hit by a Plague Wave`}))]),
-       key: () => `<span>${keyDot('#b58cff')}Where the waves came from</span><span>${keyCross('#ff5a4a')}Hit by one</span>`}},
 
     {id: 'inf', title: 'Exploding Infection',
      one: p => ({head: ['Time', ['Infected', 'l'], ['Dispelled by', 'l'], 'Stacks', 'Same time as another'], rows: infections(p).filter(x => x.together || (p.diff === 16 && x.st >= LATE)).map(x =>
@@ -91,7 +88,7 @@ const CFG = {
   avoid: {names: ['Plague Wave', 'Plague Froth', 'Stygian Burst', 'Virulent Fumes', 'Umbral Ejection', 'Deadly Venom'],
     short: {'Plague Wave': 'Wave', 'Plague Froth': 'Froth', 'Stygian Burst': 'Stygian', 'Virulent Fumes': 'Fumes', 'Umbral Ejection': 'Umbral', 'Deadly Venom': 'Venom'},
     skip: (h, p) => (h[2] === 'Plague Froth' && hadAura(p, h[1], '#1281913', h[0], 1)) || (h[2] === 'Stygian Burst' && hadAura(p, h[1], 'Stygian Infection', h[0], 1)) || (h[2] === 'Virulent Fumes' && isTankIn(p, h[1])),
-    note: "Damage taken from each (hover a number for how many hits; shields count). Plague Froth and Stygian Burst don't count on the player who has them; Virulent Fumes doesn't count on tanks."},
+    note: "Damage taken from each, then how many hits (×N); shields count. Plague Froth and Stygian Burst don't count on the player who has them; Virulent Fumes doesn't count on tanks."},
   abilities: {'Malignant Burst': 1280189, 'Malignant Cavity': 1280189, 'Malignance': 1304459, 'Malignant Totems': 1304459, 'Catalytic Bile': 1282602,
     'Malignant Catalyst': 1282525, 'Caustic Surge': 1285979, 'Plague Froth': 1281907, 'Plague Waves': 1295798, 'Plague Wave': 1295798, 'Stygian Burst': 1302489,
     'Stygian Infection': 1294994, 'Exploding Infection': 1295173, 'Caustic Explosion': 1295209, 'Virulent Fumes': 1291461, 'Umbral Ejection': 1286737,

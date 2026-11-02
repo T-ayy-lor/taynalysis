@@ -13,7 +13,7 @@
 <script src="shared.js"></script>
 <script>
 // The page is drawn by boss.js from this config (see the top of boss.js for what each part means).
-const WELL = [206.7, 0];   // the Soulcoil Well (where Nek'zali stands for the Ritual of Awakening)
+const WELL = [208.2, 0.7];   // the Soulcoil Well's middle (fitted 2026-11-02: no Amani ever dies within 10 yd of it)
 // Soulcoil Rite fires on its own during Soulcoil Ignition and after each Invoke; any other Rite came from the well being fed.
 const planned = p => [...npcAuras(p, 'Soulcoil Ignition').map(a => [a[3] - 0.5, (a[4] != null ? a[4] : p.dur) + 1.5]),
   ...castsOf(p, 'Invoke').map(t => [t - 0.5, t + 7])];
@@ -22,9 +22,15 @@ const strayRites = p => pulsesOf(p, 'Soulcoil Rite').filter(x => !inWindows(x[0]
 const reached = p => addsOf(p, 'Restless Amani').filter(a => a[4] === 'gone' && a[3] && dist(a[3], WELL) < 8 && a[0] < p.dur - 3);
 const waves = p => dedupe(p.spawns.filter(s => s[1] === 'Restless Amani'), 15).map(s => s[0]);
 const waveOf = (p, t) => { const w = waves(p); let i = -1; w.forEach((s, k) => { if (s <= t) i = k; }); return i + 1; };
-const rends = p => auras(p, '#1287434').map(a => {   // Essence Rend: the puddle (Latent Cultist) lands where the debuff ended
+// Essence Rend: the puddle (Latent Cultist) lands where the debuff ended. The target gets time to walk out before a dispel:
+// 1.5 s to react plus the walk (7 yd/s) from where they stood when it landed to 35 yd from the well. Dispelled sooner, it's
+// the dispeller's mistake ("Dispelled too early") and the puddle doesn't count against the target.
+const MID = 35, RUN = 7, REACT = 1.5;
+const rends = p => auras(p, '#1287434').map(a => {
   const by = (p.dispels.find(d => d[2] === a[0] && d[3] === 'Essence Rend' && Math.abs(d[0] - (a[2] || 0)) < 0.4) || [])[1] || null;
-  const d = dist(a[6], WELL); return {n: a[0], t: a[1], off: a[2], pos: a[6], by, d, mid: d != null && d < 35}; });
+  const d = dist(a[6], WELL), d0 = dist(a[5], WELL), need = REACT + Math.max(0, MID - (d0 != null ? d0 : MID)) / RUN;
+  const after = a[2] != null ? a[2] - a[1] : null, early = !!(by && by !== a[0] && after != null && after < need);
+  return {n: a[0], t: a[1], off: a[2], pos: a[6], by, d, after, need, early, mid: d != null && d < MID}; });
 const contacts = (p, ability, gap = 2) => { const last = {}, out = [];   // separate touches of a lingering area, not every tick
   hitsOf(p, ability).forEach(h => { if (last[h[1]] == null || h[0] - last[h[1]] > gap) out.push(h); last[h[1]] = h[0]; }); return out; };
 const ignitions = p => npcAuras(p, 'Soulcoil Ignition').map(a => {
@@ -37,7 +43,7 @@ const stints = p => auras(p, 'Hollowing Strikes').filter(a => isTankIn(p, a[0]) 
 const TOO_MANY = 8;   // Hollowing Strikes: 5% less healing per stack; swap by 30-40% (Method), 5-6 stacks (Icy Veins)
 const CFG = {
   slug: 'nekzali', name: "Nek'zali", enc: ['3470'],
-  map: {src: 'img/maps/nekzali.webp', cal: {cx: 206.7, cy: 0, ppy: 4.689, rot: 0, center: [299.5, 299.5]}},
+  map: {src: 'img/maps/nekzali.webp', cal: {cx: 208.2, cy: 0.7, ppy: 5.8, rot: 0, center: [299.9, 305.2]}},   // the well's middle is image pixel (299.9, 305.2), radius 48 px; at 5.8 px/yd every Amani death's dot (none within 10.1 yd) clears it
   modules: [
     {id: 'well', title: 'Soulcoil Well',
      one: p => ({head: ['Time', ['What went in', 'l'], ['Details', 'l']], rows: [
@@ -53,7 +59,7 @@ const CFG = {
      foot: list => { const s = list.reduce((a, p) => a + auras(p, 'Soulcoiled').length, 0), e = list.reduce((a, p) => a + castsOf(p, 'Uncoiled Rage').length, 0);
        return `${s} Soulcoiled · ${e} full-energy enrage${e === 1 ? '' : 's'}.`; },
      note: 'Every Restless Amani or Soulcoiled player that reaches the Soulcoil Well gives Nek\'zali 5 energy and sets off a Soulcoil Rite on the raid. Break the Amani\'s Gravebound Advance shield with magic damage and kill them before the water.',
-     overlay: {label: 'Amani', get: p => addsOf(p, 'Restless Amani').filter(a => a[3]).map(a => {
+     overlay: {label: 'Amani', get: p => addsOf(p, 'Restless Amani').filter(a => a[3] && (a[4] === 'died' || reached(p).includes(a))).map(a => {   // still walking when a wipe ended: left out
        const got = reached(p).includes(a);
        return {pos: a[3], t: a[0], mark: got ? 'cross' : 'dot', color: got ? '#ff5a4a' : '#9a9396',
          tip: got ? '<b>Restless Amani reached the well</b>' : `<b>Restless Amani killed here</b><br>${p.diff >= 15 ? 'its corpse stays (Vessel of Awakening)' : ''}`}; }),
@@ -61,17 +67,19 @@ const CFG = {
 
     {id: 'rend', title: 'Essence Rend',
      one: p => ({head: ['Time', ['Puddle from', 'l'], ['Details', 'l']], rows: rends(p).filter(r => r.mid).map(r =>
-       [T(r.t), P(r.n), X(`<span class="bad">${Math.round(r.d)} yd from the well</span> · ${r.by ? 'dispelled by ' + pname(r.by) : 'ran out'}`, 'det')])}),
+       [T(r.t), P(r.n), X(`<span class="bad">${Math.round(r.d)} yd from the well</span> · ${r.early
+         ? `<span class="bad">dispelled too early by ${pname(r.by)}</span> (after ${r.after.toFixed(1)} s; needed ${r.need.toFixed(1)} s to get out)`
+         : r.by ? `dispelled by ${pname(r.by)} after ${r.after.toFixed(1)} s` : 'ran out'}`, 'det')])}),
      all: list => perPlayer(list, [
-       {h: 'Puddle in the middle', get: p => rends(p).filter(r => r.mid).map(r => ({n: r.n, t: r.off}))},
-       {h: 'Dispelled one in the middle', get: p => rends(p).filter(r => r.mid && r.by && r.by !== r.n).map(r => ({n: r.by, t: r.off}))},
+       {h: 'Puddle in the middle', get: p => rends(p).filter(r => r.mid && !r.early).map(r => ({n: r.n, t: r.off}))},
+       {h: 'Dispelled too early', get: p => rends(p).filter(r => r.mid && r.early).map(r => ({n: r.by, t: r.off}))},
        {h: 'Stood in a puddle', get: p => contacts(p, 'Latent Cultist').map(h => ({n: h[1], t: h[0]}))}]),
      foot: list => { const s = {}; list.forEach(p => contacts(p, 'Latent Cultist').forEach(h => inc(s, h[1])));
        const top = Object.entries(s).sort((a, b) => b[1] - a[1]).slice(0, 6); return list.length === 1 && top.length ? `Stood in a puddle: ${top.map(([n, c]) => `${pname(n)} ${c}`).join(', ')}.` : ''; },
-     note: 'The target runs to the edge of the room before being dispelled: the Latent Cultist puddle stays for the rest of the fight (and moves on Invoke). Middle = under 35 yd from the well.',
-     overlay: {label: 'Essence Rend puddles', get: p => rends(p).filter(r => r.pos).map(r => ({pos: r.pos, t: r.off, n: r.n, color: r.mid ? '#ff5a4a' : '#d8d2cf',
-       tip: `<b style="color:${color(r.n)}">${esc(r.n)}</b>'s puddle${r.mid ? ' (middle)' : ''}<br>${r.by ? 'dispelled by ' + esc(r.by) : 'ran out'}`})),
-       key: () => `<span>${keyDot('#d8d2cf')}At the edge</span><span>${keyDot('#ff5a4a')}In the middle</span>`}},
+     note: 'The target runs to the edge before being dispelled: the Latent Cultist puddle stays for the rest of the fight (and moves on Invoke). Middle = under 35 yd from the well. Dispelled too early = before the target could walk out (1.5 s plus the walk at 7 yd/s); that puddle counts against the dispeller, not the target.',
+     overlay: {label: 'Essence Rend puddles', get: p => rends(p).filter(r => r.pos).map(r => ({pos: r.pos, t: r.off, n: r.n, color: !r.mid ? '#d8d2cf' : r.early ? '#f2a33a' : '#ff5a4a',
+       tip: `<b style="color:${color(r.n)}">${esc(r.n)}</b>'s puddle${r.mid ? ' (middle)' : ''}<br>${r.early ? `dispelled too early by ${esc(r.by)} (${r.after.toFixed(1)} s, needed ${r.need.toFixed(1)} s)` : r.by ? `dispelled by ${esc(r.by)} after ${r.after.toFixed(1)} s` : 'ran out'}`})),
+       key: () => `<span>${keyDot('#d8d2cf')}At the edge</span><span>${keyDot('#ff5a4a')}In the middle</span><span>${keyDot('#f2a33a')}In the middle: dispelled too early</span>`}},
 
     {id: 'ign', title: 'Soulcoil Ignition',
      one: p => ({head: ['Time', 'Ritual Burn carried in', ['Hit by Anguished Echoes', 'l']], rows: ignitions(p).filter(g => g.burn || g.hit.length).map(g =>
@@ -118,14 +126,14 @@ const CFG = {
   avoid: {names: ['Latent Cultist', 'Anguished Echoes', 'Soul Transfer', 'Swirling Spirit', 'Soulcoil Well', 'Deadly Venom'],
     short: {'Latent Cultist': 'Cultist', 'Anguished Echoes': 'Echoes', 'Soul Transfer': 'Transfer', 'Swirling Spirit': 'Spirit', 'Soulcoil Well': 'Well', 'Deadly Venom': 'Venom'},
     skip: (h, p) => h[2] === 'Soulcoil Well' && p.diff === 16,
-    note: 'Damage taken from each (hover a number for how many hits; shields count). Standing in the Soulcoil Well doesn\'t count on Mythic, where the well team goes in on purpose.'},
+    note: 'Damage taken from each, then how many hits (×N); shields count. Standing in the Soulcoil Well doesn\'t count on Mythic, where the well team goes in on purpose.'},
   abilities: {"Soulcoiler's Curse": 1300238, 'Soulcoiled': 1290361, 'Invoke': 1299673, 'Soulcoil Rite': 1284033, 'Soulcoil Ignition': 1285681,
     'Restless Amani': 1289919, 'Gravebound Advance': 1287533, 'Soulcoil Well': 1284032, 'Uncoiled Rage': 1284034, 'Latent Cultist': 1287198,
     'Anguished Echoes': 1294846, 'Soul Transfer': 1292248, 'Swirling Spirit': 1300239, 'Essence Rend': 1287426, 'Ritual Burn': 1297624,
     'Ritual of Awakening': 1289683, 'Grasping Depths': 1293212, 'Possession Barrage': 1284103, 'Hollowing Strikes': 1284110,
     'Hungering Pyre': 1289855, 'Slithering Flame': 1294933, 'Vessel of Awakening': 1295263, 'Echoes of Jawae': 1292248, 'Echo of Jawae': 1292248,
     'Drowned Echo': 1293212, 'Deadly Venom': 1297338},
-  how: "Built from the Encounter Journal, Method's Heroic and Mythic guides and Icy Veins, and checked against Taylor's logs (Sep-Oct 2026: 10 Mythic and 13 Heroic pulls); not yet checked on a live raid night. An Amani that reached the well is one that was last seen in it and never died (each one lines up with an extra Soulcoil Rite in the logs). Puddles: where the Essence Rend debuff ended. The room image is from raidstrats.gg, lined up on the Soulcoil Well and the Echoes of Jawae (49 yd either side); north is up.",
+  how: "Built from the Encounter Journal, Method's Heroic and Mythic guides and Icy Veins, and checked against Taylor's logs (Sep-Oct 2026: 10 Mythic and 13 Heroic pulls); not yet checked on a live raid night. An Amani that reached the well is one that was last seen in it and never died (each one lines up with an extra Soulcoil Rite in the logs). Puddles: where the Essence Rend debuff ended. The room image is from raidstrats.gg, centred on the Soulcoil Well (fitted to where Amani die: never within 10 yd of its middle); north is up.",
 };
 </script>
 <script src="boss.js"></script>

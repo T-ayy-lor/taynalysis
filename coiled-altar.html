@@ -15,8 +15,8 @@
 // The page is drawn by boss.js from this config (see the top of boss.js for what each part means).
 const contacts = (p, ability, gap = 2) => { const last = {}, out = [];
   hitsOf(p, ability).forEach(h => { if (last[h[1]] == null || h[0] - last[h[1]] > gap) out.push(h); last[h[1]] = h[0]; }); return out; };
-// orbs: Volatile Venom hurts everyone near its carrier; a hit on someone not carrying one = they stood next to a carrier
-const nearCarrier = p => contacts(p, 'Volatile Venom').filter(h => !hadAura(p, h[1], 'Volatile Venom', h[0], 0.5) && !isTankIn(p, h[1]));   // tanks aim Sever at the orb pile
+// orbs: where each carrier dropped theirs (Volatile Venom ended there), for the map
+const orbDrops = p => auras(p, 'Volatile Venom').filter(a => a[2] != null && a[6]);
 const severs = p => ['Sever', 'Soul Sever', 'Blighted Sever'].flatMap(s => contacts(p, s, 8).filter(h => !isTankIn(p, h[1])).map(h => ({t: h[0], n: h[1], s})));   // the DoT ticks count once
 // Guillotine: the axe lands on the target and splits between everyone within 9 yd: 5+ soakers, or Execution hits everyone
 const guillotines = p => [...auras(p, '#1283485').map(a => ({t: a[1], n: a[0], grim: false})), ...auras(p, '#1299266').map(a => ({t: a[1], n: a[0], grim: true}))]
@@ -32,50 +32,66 @@ const fangs = p => auras(p, 'Venomfang').map(a => ({n: a[0], t: a[1], s: (a[2] !
 const marches = p => castsOf(p, 'Dreadmarch').map(c => { const m = auras(p, 'Dreadmarch').filter(a => a[1] - c >= -0.5 && a[1] - c <= 4);
   return {t: c, n: m.map(a => a[0]), s: Math.max(0, ...m.map(a => (a[2] != null ? a[2] : p.dur) - a[1]))}; });
 const ghosts = p => auras(p, 'Dreadmarch').filter(a => !castsOf(p, 'Dreadmarch').some(c => a[1] - c >= -0.5 && a[1] - c <= 4));
+// each Manifestation of Dread: its player (Unnerving Fixation: p.fixate [player, on, off, unit id]) and the frontals that caught it
+// (Soul / Blighted Sever on the ghost). A Sever lands 4 s after its cast starts (casts within 5 s = one Sever). Missed by a frontal:
+// a ghost out for 10 s+ (time to park it), still chasing its living player when a Sever landed, and not caught by it (once per ghost)
+const SEVERS = ['Soul Sever', 'Blighted Sever'], SEVER_CAST = 4, PARK = 10;
+const severLands = p => SEVERS.flatMap(s => castsOf(p, s)).sort((a, b) => a - b).reduce((l, c) => (l.length && c - l[l.length - 1].c <= 5 ? l : [...l, {c, t: c + SEVER_CAST}]), []);
+const ghostMisses = p => { const caughtAt = {}; SEVERS.flatMap(s => npcAuras(p, s)).forEach(a => { (caughtAt[a[2]] ||= []).push(a[3]); });
+  const lands = severLands(p), dead = (n, t) => p.deaths.some(d => d[1] === n && d[0] < t);
+  return (p.fixate || []).map(f => { const end = f[2] != null ? f[2] : p.dur;
+    const L = lands.find(L => L.t - f[1] >= PARK && end > L.t + 1 && !dead(f[0], L.t) && !(caughtAt[f[3]] || []).some(c => Math.abs(c - L.t) < 1.5));
+    return L ? {n: f[0], t: L.t} : null; }).filter(Boolean); };
+// Dreadmarch: where each possessed player was when it ended, and Malacrass then (they should be stacked on him)
+const MARCH_NEAR = 8;
+const marchSpots = p => marches(p).flatMap(m => auras(p, 'Dreadmarch').filter(a => m.n.includes(a[0]) && a[1] - m.t >= -0.5 && a[1] - m.t <= 4 && a[6]).map(a => {
+  const b = bossAt(p, 'Malacrass', a[2] != null ? a[2] : p.dur); return {n: a[0], t: a[2] != null ? a[2] : p.dur, pos: a[6], boss: b, d: b ? dist(a[6], b) : null}; }));
 const clipped = p => hitsOf(p, 'Gloombomb').filter(h => !hadAura(p, h[1], 'Gloombomb', h[0], 1));
 const CFG = {
   slug: 'coiled-altar', name: 'The Coiled Altar', enc: ['3429'],
   map: {src: 'img/maps/coiled-altar.webp', cal: {cx: 1158, cy: 0, ppy: 6.029, rot: 0, center: [299.5, 290]}},
+  // map-only overlays (no table of their own)
+  overlays: [
+    {id: 'march', label: 'Dreadmarch', get: p => marchSpots(p).flatMap(x => [
+       {pos: x.pos, n: x.n, t: x.t, color: x.d != null && x.d > MARCH_NEAR ? '#ff5a4a' : '#d8d2cf', tip: `<b style="color:${color(x.n)}">${esc(x.n)}</b> when Dreadmarch ended${x.d != null ? `<br>${Math.round(x.d)} yd from Malacrass` : ''}`},
+       x.boss && {pos: x.boss, t: x.t, mark: 'cross', color: '#b58cff', tip: '<b>Hex Lord Malacrass</b>'}].filter(Boolean)),
+     key: () => `<span>${keyDot('#d8d2cf')}Possessed player, on Malacrass</span><span>${keyDot('#ff5a4a')}More than ${MARCH_NEAR} yd from him</span><span>${keyCross('#b58cff')}Malacrass</span>`},
+    {id: 'orbs', label: 'Orb drops', get: p => orbDrops(p).map(a => ({pos: a[6], n: a[0], t: a[2], color: '#7fd36b', tip: `<b style="color:${color(a[0])}">${esc(a[0])}</b> dropped an orb here`})),
+     key: () => `<span>${keyDot('#7fd36b')}Where an orb was dropped</span>`},
+  ],
   hitNames: {'#1297906': 'Gravebound ran out', '#1283594': 'Guillotine soak', '#1299296': 'Grim Guillotine soak'},
   modules: [
     {id: 'guil', title: 'Guillotine',
-     one: p => ({head: ['Time', ['Target', 'l'], 'Soakers', ['What went wrong', 'l']], rows: guillotines(p).filter(g => g.soak.length < 5 || g.exec || g.again.length || g.kiss.length).map(g =>
-       [T(g.t), P(g.n), N(g.soak.length, g.soak.length < 5 ? 'bad' : ''), X([g.exec ? '<b class="bad">Execution</b>' : '', g.again.length ? `soaked with Guillotined: ${g.again.map(pname).join(', ')}` : '',
-         g.kiss.length ? `too close when it erupted: ${g.kiss.map(pname).join(', ')}` : ''].filter(Boolean).join(' · '), 'det')])}),
-     all: list => perPlayer(list, [{h: 'Soaked with Guillotined', get: p => guillotines(p).flatMap(g => g.again.map(n => ({n, t: g.land})))},
-       {h: "Too close when it erupted", get: p => guillotines(p).flatMap(g => g.kiss.map(n => ({n, t: g.land})))}]),
+     one: p => ({head: ['Time', ['Target', 'l'], 'Soakers', ['What went wrong', 'l']], rows: guillotines(p).map(g => Object.assign(g, {kissBad: p.diff === 16 ? g.kiss : []}))
+       .filter(g => g.exec || g.again.length || g.kissBad.length).map(g =>
+       [T(g.t), P(g.n), N(g.soak.length, g.exec ? 'bad' : ''), X([g.exec ? '<b class="bad">Execution: fewer than 5 soaked</b>' : '', g.again.length ? `soaked while Guillotined: ${g.again.map(pname).join(', ')}` : '',
+         g.kissBad.length ? `too close when it erupted: ${g.kissBad.map(pname).join(', ')}` : ''].filter(Boolean).join(' · '), 'det')])}),
+     all: list => perPlayer(list, [{h: 'Soaked while Guillotined', get: p => guillotines(p).flatMap(g => g.again.map(n => ({n, t: g.land})))},
+       ...(list.some(p => p.diff === 16) ? [{h: 'Too close when it erupted', get: p => p.diff === 16 ? guillotines(p).flatMap(g => g.kiss.map(n => ({n, t: g.land}))) : []}] : [])]),
      foot: list => { const e = list.reduce((a, p) => a + guillotines(p).filter(g => g.exec).length, 0); return e ? `<b style="color:var(--crit)">${e} Execution${e === 1 ? '' : 's'} (fewer than 5 in the soak).</b>` : ''; },
-     note: "At least 5 in each soak; on Heroic soakers get Guillotined and must sit out the next one (two groups). Then everyone gets out before Widow's Kiss / Death's Embrace erupts."},
-
-    {id: 'orb', title: 'Coalesced Venom orbs',
-     one: p => perPlayer([p], [{h: 'Carried', cls: '', get: q => auras(q, 'Volatile Venom').map(a => ({n: a[0], t: a[1]}))},
-       {h: 'Next to a carrier', get: q => nearCarrier(q).map(h => ({n: h[1], t: h[0]}))}]),
-     all: list => perPlayer(list, [{h: 'Next to a carrier', get: q => nearCarrier(q).map(h => ({n: h[1], t: h[0]}))}]),
-     foot: list => { const m = Math.max(0, ...list.flatMap(p => auras(p, 'Venom Rupture').map(a => a[3]))); return m ? `Venom Rupture peaked at ${m} stacks on the raid.` : ''; },
-     note: 'Carriers stay away from everyone and drop the orbs in one pile for Sever. Every orb destroyed adds a Venom Rupture stack on the raid.'},
+     note: "At least 5 in each soak, and soakers sit the next one out while Guillotined. On Mythic everyone also gets out before Death's Embrace erupts (on Heroic you stand in Widow's Kiss)."},
 
     {id: 'sever', title: 'Sever frontals',
      one: p => ({head: ['Time', ['Hit', 'l'], ['Frontal', 'l']], rows: severs(p).sort((a, b) => a.t - b.t).map(x => [T(x.t), P(x.n), `<td class="l">${esc(x.s)}</td>`])}),
      all: list => perPlayer(list, [{h: 'Hit by a frontal', get: p => severs(p).map(x => ({n: x.n, t: x.t}))}]),
      note: "Sever, Soul Sever and Blighted Sever are for the tank only (Soul and Blighted Sever also leave Gravebound). Tanks don't count."},
 
-    {id: 'march', title: 'Dreadmarch and ghosts',
-     one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [
-       ...marches(p).filter(m => m.s > 5).map(m => ({t: m.t, r: [T(m.t), `<td class="what meh">Slow to free</td>`, X(`${m.n.map(pname).join(', ')} · ${m.s.toFixed(1)} s`, 'det')]})),
-       ...ghosts(p).map(a => ({t: a[1], r: [T(a[1]), B('Ghost reached them'), P(a[0])]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
-     all: list => perPlayer(list, [{h: 'Ghost reached them', get: p => p.diff === 14 ? [] : ghosts(p).map(a => ({n: a[0], t: a[1]}))}]),
-     note: 'Break the possessed players\' shields fast (listed when it took over 5 s). Each Manifestation of Dread creeps toward its player whenever they look away: face it and park it for Soul Sever. On Heroic+ one that reaches you marches you again.',
+    {id: 'ghost', title: 'Ghosts (Manifestation of Dread)',
+     one: p => ({head: ['Time', ['What', 'l'], ['Whose ghost', 'l']], rows: [
+       ...(p.diff === 14 ? [] : ghosts(p)).map(a => ({t: a[1], r: [T(a[1]), B('Reached its player'), P(a[0])]})),
+       ...ghostMisses(p).map(x => ({t: x.t, r: [T(x.t), `<td class="what meh">Missed by a frontal</td>`, P(x.n)]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
+     all: list => perPlayer(list, [{h: 'Ghost reached them', get: p => p.diff === 14 ? [] : ghosts(p).map(a => ({n: a[0], t: a[1]}))},
+       {h: 'Ghost missed by a frontal', cls: 'meh', get: p => ghostMisses(p)}]),
+     note: 'Each Manifestation of Dread creeps toward its player whenever they look away: face it and park it where the tank\'s Soul Sever will hit it. Missed by a frontal = a Soul or Blighted Sever landed while their ghost (out for 10 s or more) was still chasing them, and it wasn\'t in it. On Heroic+ one that reaches you marches you again.',
      overlay: {label: 'Ghosts that reached', diffs: '15,16', get: p => ghosts(p).map(a => ({pos: a[5], n: a[0], t: a[1], mark: 'cross', color: '#b58cff', tip: `<b style="color:${color(a[0])}">${esc(a[0])}</b>: a ghost reached them`})),
        key: () => `<span>${keyCross('#b58cff')}Where a ghost reached its player</span>`}},
 
     {id: 'gloom', title: 'Gloombomb and Gravebound',
-     one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [...dedupe(clipped(p), 2).map(h0 => ({t: h0[0], r: [T(h0[0]), B('Clipped by a Gloombomb'), PS([...new Set(clipped(p).filter(h => Math.abs(h[0] - h0[0]) < 2).map(h => h[1]))])]})),
-       ...hitsOf(p, 'Gravebound ran out').map(h => ({t: h[0], r: [T(h[0]), B('Gravebound ran out'), P(h[1])]})),
-       ...hitsOf(p, 'Unworthy').map(h => ({t: h[0], r: [T(h[0]), B('Unworthy'), P(h[1])]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
-     all: list => perPlayer(list, [{h: 'Clipped by a Gloombomb', get: p => dedupe(clipped(p).map(h => [h[0], h[1]]), 0).map(h => ({n: h[1], t: h[0]}))},
-       {h: 'Gravebound ran out', get: p => hitsOf(p, 'Gravebound ran out').map(h => ({n: h[1], t: h[0]}))},
-       {h: 'Unworthy', get: p => hitsOf(p, 'Unworthy').map(h => ({n: h[1], t: h[0]}))}]),
-     note: 'Gloombomb players move out so nobody else is hit (on Heroic+ that gives them Gravebound too). Gravebound: pick up your 3 Soul Fragments before it ends or die. Unworthy: didn\'t face Malacrass.'},
+     one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [...dedupe(clipped(p), 2).map(h0 => ({t: h0[0], r: [T(h0[0]), B("Hit by someone's Gloombomb"), PS([...new Set(clipped(p).filter(h => Math.abs(h[0] - h0[0]) < 2).map(h => h[1]))])]})),
+       ...hitsOf(p, 'Gravebound ran out').map(h => ({t: h[0], r: [T(h[0]), B("Didn't collect their ghosts"), P(h[1])]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
+     all: list => perPlayer(list, [{h: "Hit by someone's Gloombomb", get: p => dedupe(clipped(p).map(h => [h[0], h[1]]), 0).map(h => ({n: h[1], t: h[0]}))},
+       {h: "Didn't collect their ghosts", get: p => hitsOf(p, 'Gravebound ran out').map(h => ({n: h[1], t: h[0]}))}]),
+     note: "Gloombomb players move out of the circle so nobody else is in it. Gravebound: collect your 3 Soul Fragments (ghosts) before it runs out."},
 
     {id: 'kick', title: 'Wail of Terror and Eternal Nightfall',
      one: p => kickOne(p, ['Wail of Terror', 'Eternal Nightfall']), all: list => kickAll(list, ['Wail of Terror', 'Eternal Nightfall']),
@@ -96,15 +112,15 @@ const CFG = {
   avoid: {names: ['Axegrinder', 'Noxious Ground', 'Defiled Ground', "Widow's Kiss", "Death's Embrace", 'Deadly Venom'],
     short: {'Axegrinder': 'Axe', 'Noxious Ground': 'Noxious', 'Defiled Ground': 'Defiled', "Widow's Kiss": 'Kiss', "Death's Embrace": 'Embrace', 'Gloombomb': 'Bomb',
       'Volatile Venom': 'Orb', 'Sever': 'Sever', 'Soul Sever': 'Soul Sev.', 'Blighted Sever': 'Blighted', 'Deadly Venom': 'Venom'},
-    skip: (h, p) => (['Sever', 'Soul Sever', 'Blighted Sever'].includes(h[2]) && isTankIn(p, h[1])) ||
+    skip: (h, p) => (['Sever', 'Soul Sever', 'Blighted Sever'].includes(h[2]) && isTankIn(p, h[1])) || (h[2] === "Widow's Kiss" && p.diff < 16) ||
       (h[2] === 'Gloombomb' && hadAura(p, h[1], 'Gloombomb', h[0], 1)) || (h[2] === 'Volatile Venom' && hadAura(p, h[1], 'Volatile Venom', h[0], 1)),
-    note: "Damage taken from each (hover a number for how many hits; shields count). Orbs, Gloombombs and the Sever frontals are in their own tables above."},
+    note: "Damage taken from each, then how many hits (×N); shields count. Widow's Kiss doesn't count on Heroic (you stand in it there). Gloombombs and the Sever frontals are in their own tables above."},
   abilities: {'Guillotine': 1283489, 'Grim Guillotine': 1299267, 'Guillotined': 1309944, 'Execution': 1283606, 'Grim Execution': 1299301, "Widow's Kiss": 1283623,
     "Death's Embrace": 1299396, 'Reclaim Essence': 1287718, 'Fragment of Malacrass': 1287718, 'Fragments of Malacrass': 1287718, 'Wail of Terror': 1286399,
     'Eternal Nightfall': 1286918, 'Veil of Twilight': 1286912, 'Dreadmarch': 1285643, 'Manifestation of Dread': 1285911, 'Gravebound': 1286837,
     'Soul Fragments': 1286837, 'Unworthy': 1312424, 'Axegrinder': 1283832, 'Noxious Ground': 1283290, 'Defiled Ground': 1298591, 'Gloombomb': 1310882,
     'Volatile Venom': 1282419, 'Venom Rupture': 1299838, 'Sever': 1299680, 'Soul Sever': 1286620, 'Blighted Sever': 1307279, 'Venomfang': 1282287,
-    'Spiteful Soulcoiler': 1286441, 'Deadly Venom': 1297338},
+    'Spiteful Soulcoiler': 1286441, 'Unnerving Fixation': 1285911, 'Deadly Venom': 1297338},
   how: "Built from the Encounter Journal, Method's Heroic and Mythic guides and Icy Veins, and checked against Taylor's logs (Aug-Oct 2026: 30 Heroic pulls; no Mythic pulls seen yet); not yet checked on a live raid night. The room image is from raidstrats.gg, lined up on the platform's edges, with the stairs where the raid gathers between pulls at the bottom.",
 };
 </script>

@@ -1,0 +1,218 @@
+{
+ "nights": [
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-081926_201636.json",
+   "log": "WoWCombatLog-081926_201636.txt",
+   "date": "8/19/2026",
+   "diff": 14,
+   "pulls": 1,
+   "kill": false,
+   "best": 1.0,
+   "byDiff": {
+    "14": {
+     "pulls": 1,
+     "kills": 0,
+     "best": 1.0
+    }
+   },
+   "updated": "2026-08-20T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-082026_170640.json",
+   "log": "WoWCombatLog-082026_170640.txt",
+   "date": "8/20/2026",
+   "diff": 14,
+   "pulls": 4,
+   "kill": true,
+   "best": 0.26,
+   "byDiff": {
+    "14": {
+     "pulls": 4,
+     "kills": 1,
+     "best": 0.26
+    }
+   },
+   "updated": "2026-08-21T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-083126_201802.json",
+   "log": "WoWCombatLog-083126_201802.txt",
+   "date": "8/31/2026",
+   "diff": 14,
+   "pulls": 4,
+   "kill": true,
+   "best": 0.657,
+   "byDiff": {
+    "14": {
+     "pulls": 4,
+     "kills": 1,
+     "best": 0.657
+    }
+   },
+   "updated": "2026-09-01T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-090326_201544.json",
+   "log": "WoWCombatLog-090326_201544.txt",
+   "date": "9/3/2026",
+   "diff": 15,
+   "pulls": 10,
+   "kill": false,
+   "best": 0.594,
+   "byDiff": {
+    "15": {
+     "pulls": 10,
+     "kills": 0,
+     "best": 0.594
+    }
+   },
+   "updated": "2026-09-04T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-090726_202058.json",
+   "log": "WoWCombatLog-090726_202058.txt",
+   "date": "9/7/2026",
+   "diff": 14,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "14": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-09-08T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-091026_201519.json",
+   "log": "WoWCombatLog-091026_201519.txt",
+   "date": "9/10/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": false,
+   "best": 0.79,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 0,
+     "best": 0.79
+    }
+   },
+   "updated": "2026-09-11T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-091626_201838.json",
+   "log": "WoWCombatLog-091626_201838.txt",
+   "date": "9/16/2026",
+   "diff": 15,
+   "pulls": 8,
+   "kill": false,
+   "best": 0.409,
+   "byDiff": {
+    "15": {
+     "pulls": 8,
+     "kills": 0,
+     "best": 0.409
+    }
+   },
+   "updated": "2026-09-17T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-091726_201618.json",
+   "log": "WoWCombatLog-091726_201618.txt",
+   "date": "9/17/2026",
+   "diff": 15,
+   "pulls": 13,
+   "kill": true,
+   "best": 0.008,
+   "byDiff": {
+    "15": {
+     "pulls": 13,
+     "kills": 1,
+     "best": 0.008
+    }
+   },
+   "updated": "2026-09-18T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-092326_201630.json",
+   "log": "WoWCombatLog-092326_201630.txt",
+   "date": "9/23/2026",
+   "diff": 15,
+   "pulls": 4,
+   "kill": true,
+   "best": 0.02,
+   "byDiff": {
+    "15": {
+     "pulls": 4,
+     "kills": 1,
+     "best": 0.02
+    }
+   },
+   "updated": "2026-09-24T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-093026_201753.json",
+   "log": "WoWCombatLog-093026_201753.txt",
+   "date": "9/30/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-10-01T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-100726_201903.json",
+   "log": "WoWCombatLog-100726_201903.txt",
+   "date": "10/7/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.482,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.482
+    }
+   },
+   "updated": "2026-10-08T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/ulatek/WoWCombatLog-101426_202321.json",
+   "log": "WoWCombatLog-101426_202321.txt",
+   "date": "10/14/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-10-15T03:30:00+00:00",
+   "earlier": true
+  }
+ ]
+}

@@ -100,17 +100,12 @@ function kickFoot(list, casts){
   return `${kicked.length} of ${all.length} kicked${top ? ' · kicks: ' + top : ''}.`;
 }
 
-// ---- theme (shared with the other boss pages) ----
-function setTheme(t, remember){
-  document.documentElement.dataset.theme = t;
-  $('thLight').setAttribute('aria-pressed', String(t === 'light')); $('thDark').setAttribute('aria-pressed', String(t === 'dark'));
-  if (remember){ try { localStorage.setItem('vir-theme', t); } catch (e) {} }
-}
 
 // ---- the page: built from CFG ----
 const panelHead = (title, s) => `<div class="ph"><h2>${title}</h2><select class="scope" data-s="${s}" aria-label="Pulls to show"></select></div>`;
 // the map overlays come from the modules: one per mechanic where where-it-happened matters
-const OVERLAYS = CFG.modules.filter(m => m.overlay).map(m => Object.assign({diffs: m.diffs}, m.overlay, {id: m.id}));   // overlay.key() is its legend
+// overlay.key() is its legend; CFG.overlays: map-only overlays that belong to no table (each with its own id)
+const OVERLAYS = [...CFG.modules.filter(m => m.overlay).map(m => Object.assign({diffs: m.diffs}, m.overlay, {id: m.id})), ...(CFG.overlays || [])];
 function buildPage(){
   const opts = BOSSES.filter(b => b.page && (!b.test || SHOW_UNTESTED || b.page === CFG.slug)).map(b => `<option value="${b.page}"${b.page === CFG.slug ? ' selected' : ''}>${esc(b.name)}</option>`).join('');
   const ovs = OVERLAYS;
@@ -123,10 +118,6 @@ function buildPage(){
     <select id="night" aria-label="Raid night" hidden></select>
     <span class="sub" id="sub">Loading…</span>
     <div class="seg" id="wlSeg" role="group" aria-label="Warlock mode" hidden><button type="button" id="wlBtn" aria-pressed="false">Warlock mode</button></div>
-    <div class="seg" id="themeSeg" role="group" aria-label="Color theme">
-      <button type="button" id="thLight" aria-pressed="false">Light</button>
-      <button type="button" id="thDark" aria-pressed="true">Dark</button>
-    </div>
     <p class="needs">Needs testing</p>
   </header>
   <div class="diffbar">
@@ -134,7 +125,6 @@ function buildPage(){
     <div class="seg" id="diffSeg" role="group" aria-label="Difficulty">
       <button type="button" data-d="14">Normal<span></span></button><button type="button" data-d="15">Heroic<span></span></button><button type="button" data-d="16">Mythic<span></span></button>
     </div>
-    <span class="sub" id="diffNote"></span>
   </div>
   <div class="panel">
     <div class="tl" id="tl"></div>
@@ -156,18 +146,18 @@ function buildPage(){
     </div>
   </div>
   ${rest.length ? `<div class="mods">${rest.map(mod).join('')}</div>` : ''}
-  <div class="panel">
-    ${panelHead('Avoidable damage taken', 'avoid')}
-    <div class="tw"><table id="avoidT"></table></div>
-    <p class="note">${CFG.avoid.note || 'Damage taken from each (hover a number for how many hits; shields count).'}</p>
-  </div>
   <div class="bottom">
     <div class="panel">${panelHead('Damage', 'dmg')}<div class="meter" id="dmg"></div></div>
     <div class="stack">
       <div class="panel">${panelHead('Healing', 'heal')}<div class="meter" id="heal"></div></div>
       <div class="panel">${panelHead('Dispels', 'disp')}<div class="meter" id="disp"></div></div>
-      <div class="panel">${panelHead('Early deaths', 'deaths')}<div class="tw"><table id="deaths"></table></div></div>
+      <div class="panel">${panelHead('Early deaths', 'deaths')}<div class="tw scrollfit"><table id="deaths"></table></div></div>
     </div>
+  </div>
+  <div class="panel">
+    ${panelHead('Avoidable damage taken', 'avoid')}
+    <div class="tw"><table id="avoidT"></table></div>
+    <p class="note">${CFG.avoid.note || 'Damage taken from each, then how many hits (×N); shields count.'}</p>
   </div>
   <div class="panel">
     <h2>How this is measured</h2>
@@ -175,13 +165,12 @@ function buildPage(){
   </div>`;
 }
 buildPage();
-(() => { let saved = null; try { if (!matchMedia('(max-width:600px)').matches) saved = localStorage.getItem('vir-theme'); } catch (e) {} setTheme(saved || 'dark', false); })();
-$('thLight').onclick = () => setTheme('light', true); $('thDark').onclick = () => setTheme('dark', true);
+document.documentElement.dataset.theme = 'dark';   // dark only: the light theme and its switch were removed (2026-10-31)
 
 // ---- view state ----
 const SCOPES = ['map', ...CFG.modules.map(m => m.id), 'avoid', 'dmg', 'heal', 'disp', 'deaths'];
 const OVS = OVERLAYS.map(o => o.id);
-const st = {scope: Object.fromEntries(SCOPES.map(k => [k, 'latest'])), ov: OVS[0], diff: null};   // scope: 'latest', 'all' or a pull's key
+const st = {scope: Object.fromEntries(SCOPES.map(k => [k, DEF_SCOPE])), ov: OVS[0], diff: null};   // scope: 'latest', 'all' or a pull's key
 try { const v = JSON.parse(localStorage.getItem(CFG.slug + '-view') || '{}'); if (OVS.includes(v.ov)) st.ov = v.ov; } catch (e) {}
 const saveView = () => { try { localStorage.setItem(CFG.slug + '-view', JSON.stringify({ov: st.ov})); } catch (e) {} };
 
@@ -201,7 +190,10 @@ function nights(){
   });
   return ns;
 }
-function viewPulls(ns){ return SITE.view === 'all' ? ns.flatMap(n => n.pulls) : ((ns.find(n => n.key === SITE.view) || {}).pulls || []); }
+// "ignore events after N deaths" (shared.js cutPull): how each list in a pull is timed; dmg / heal / dispels stay whole
+const CUT_SPEC = {casts: 'dict:num', ctgt: 'dict:row', kicks: 'row', auras: 'dict:at:1', npc: 'at:3', hits: 'row', pulses: 'dict:row',
+  spawns: 'row', adds: 'row', deaths: 'row', avoid: 'row'};
+function viewPulls(ns){ return (SITE.view === 'all' ? ns.flatMap(n => n.pulls) : ((ns.find(n => n.key === SITE.view) || {}).pulls || [])).map(p => cutPull(p, CUT_SPEC)); }
 // checked every few seconds; the page only redraws when something actually changed
 async function checkSite(){
   let changed = !SITE.index; const err0 = SITE.err;
@@ -210,7 +202,7 @@ async function checkSite(){
     await Promise.all((idx.nights || []).map(async e => { const have = SITE.files[e.file]; if (!have || have.updated !== e.updated){ SITE.files[e.file] = await fetchJSON(e.file); changed = true; } }));
     if (SITE.index && (SITE.index.nights || []).length !== (idx.nights || []).length) changed = true;
     SITE.index = idx; SITE.err = null;
-    if (!SITE.view){ const ns = nights(); SITE.view = ns.length ? ns[ns.length - 1].key : null; }   // newest night on load only
+    if (!SITE.view) SITE.view = startNight(nights());   // on load only: the newest night during raid hours, else all nights
   } catch (e) {
     SITE.err = /404/.test(String(e)) ? null : 'Could not load the data; trying again in a few seconds.';
     if (!SITE.index) SITE.index = {nights: []};
@@ -301,7 +293,7 @@ function renderTimeline(ns){
 }
 
 // ---- bottom panels: shared.js draws them with this page's helpers ----
-const H = {pname, order: byRoster, healer: n => role(n) === 'Healer', people, color};
+const H = {pname, order: byRoster, healer: n => role(n) === 'Healer', people, color, spell: n => ABILITY[n]};
 
 // ---- ability tooltips: ability names link to Wowhead, whose tooltip script shows the in-game ability text on hover ----
 const ABILITY = CFG.abilities || {};
@@ -327,16 +319,18 @@ function linkify(root){
 // ---- difficulty: picks which pulls every module shows, and hides modules that don't happen on it ----
 function renderDiff(ns){
   const all = ns.flatMap(n => n.pulls);
-  if (st.diff == null){ const last = all[all.length - 1]; st.diff = last ? last.diff : TEAM.diff; }   // on load: the newest pull's difficulty, else the team's usual one
+  if (st.diff == null) st.diff = startDiff(all);   // on load: the home page's pick (?diff=), else the newest pull's, else the team's usual one
   const inView = viewPulls(ns);
   $('diffSeg').querySelectorAll('button').forEach(b => { const d = +b.dataset.d, c = inView.filter(p => p.diff === d).length;
     b.setAttribute('aria-pressed', String(d === st.diff)); b.querySelector('span').textContent = c; });
+  syncDiff(all, st.diff);
   document.querySelectorAll('[data-diffs]').forEach(el => { el.hidden = !el.dataset.diffs.split(',').includes(String(st.diff)); });
   const ovOk = o => !o.diffs || o.diffs.split(',').includes(String(st.diff));
   OVERLAYS.forEach(o => { const b = $('ovSeg').querySelector(`[data-ov="${o.id}"]`); if (b) b.hidden = !ovOk(o); });
   if (!OVERLAYS.some(o => o.id === st.ov && ovOk(o))) st.ov = (OVERLAYS.find(ovOk) || {}).id;
 }
 $('diffSeg').querySelectorAll('button').forEach(b => b.onclick = () => { st.diff = +b.dataset.d; render(); });
+initDeathCut(render);
 
 // ---- render ----
 function render(){
@@ -351,14 +345,12 @@ function render(){
     ...viewAll.slice().reverse().map(p => [p.key, pullLabel(p, all)]), ['all', `Overall (${plural(viewAll.length, 'pull')})`]];
   const L = {};
   document.querySelectorAll('select.scope').forEach(el => { const k = el.dataset.s;
-    if (st.scope[k] !== 'latest' && st.scope[k] !== 'all' && !viewAll.some(p => p.key === st.scope[k])) st.scope[k] = 'latest';
+    if (st.scope[k] !== 'latest' && st.scope[k] !== 'all' && !viewAll.some(p => p.key === st.scope[k])) st.scope[k] = DEF_SCOPE;
     el.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}"${v === st.scope[k] ? ' selected' : ''}>${esc(t)}</option>`).join('');
     const sg = document.querySelector(`.seg.mini[data-s="${k}"]`);
     if (sg) sg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === st.scope[k])));
     L[k] = st.scope[k] === 'all' ? viewAll : st.scope[k] === 'latest' ? (latest ? [latest] : []) : viewAll.filter(p => p.key === st.scope[k]); });
   $('sub').textContent = '';
-  const kills = viewAll.filter(p => p.kill).length;
-  $('diffNote').textContent = `${viewAll.length} ${DIFF[st.diff]} pull${viewAll.length === 1 ? '' : 's'}${kills ? ` · ${plural(kills, 'kill')}` : ''}`;
   renderTimeline(ns);
   renderMap(L.map, L.map.length > 1);
   CFG.modules.forEach(m => renderModule(m, L[m.id]));

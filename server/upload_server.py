@@ -4,15 +4,21 @@ Taynalysis upload service. Caddy forwards https://taynalysis.com/api/* here; eve
 straight from the site folder.
 
   PUT /api/files/<path>   save one site file (needs the upload token)     -> {"ok": true, "path": ..., "bytes": n}
+  PUT /api/groups/<team>/<tier>/<boss>/<set>   save group picks made on a boss page (needs the editor key, which can do
+                          nothing else): body {"groups": {"Player": value, ...}, "from": "now" | "all"}. "now" adds a change
+                          stamped with the server's clock (pulls before it keep the old groups); "all" replaces the
+                          history (the groups count for every pull). Writes data/<team>/<tier>/<boss>/groups-<set>.json
+                          -> {"ok": true, "changes": [...]}
   GET /api/check          confirm an upload token works                    -> {"ok": true}
   GET /api/health         is the service running (no token needed)         -> {"ok": true}
 
 Settings come from environment variables (set in the systemd unit):
   TAYNALYSIS_SITE        site folder Caddy serves                 (default /srv/taynalysis/site)
   TAYNALYSIS_TOKEN_FILE  file holding the upload token             (default /etc/taynalysis/upload-token)
+  TAYNALYSIS_EDITOR_FILE file holding the editor key (groups only) (default /etc/taynalysis/editor-key)
   TAYNALYSIS_PORT        local port Caddy forwards to              (default 8787)
 """
-import hmac, json, os, re, sys, tempfile
+import hmac, json, os, re, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
@@ -22,6 +28,13 @@ PORT = int(os.environ.get('TAYNALYSIS_PORT', '8787'))
 MAX_BYTES = 25 * 1024 * 1024
 ALLOWED = {'.html', '.json', '.txt', '.css', '.js', '.png', '.jpg', '.jpeg', '.webp', '.svg', '.ico', '.woff2'}
 SEGMENT = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$')     # no leading dot, no slashes, no spaces
+EDITOR_FILE = os.environ.get('TAYNALYSIS_EDITOR_FILE', '/etc/taynalysis/editor-key')
+# boss page -> group sets it has -> what a player's value may be
+KICK_SPOT = re.compile(r'^(ml|fm|mr|rl|rr|backup)[1-9]$')        # kick order: quadrant + place in it (melee left 1st = ml1)
+GROUP_SETS = {'twin-fangs': {'feast': lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 3,
+                             'kicks': lambda v: isinstance(v, str) and bool(KICK_SPOT.match(v))}}
+SLUG = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
+GROUP_LOCK = threading.Lock()
 
 
 def load_token():
@@ -32,6 +45,31 @@ def load_token():
     return tok
 
 TOKEN = load_token()
+
+
+def load_editor_key():
+    """The editor key only saves group picks. Without the file, group saving is off (everything else still works)."""
+    try:
+        with open(EDITOR_FILE, encoding='utf-8') as f:
+            key = f.read().strip()
+    except OSError:
+        return None
+    return key if len(key) >= 16 else None
+
+EDITOR_KEY = load_editor_key()
+
+
+def write_atomic(dest, data):
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest), prefix='.up-')
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            f.write(data)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, dest)          # readers see the old file or the new one, never half of one
+    except Exception:
+        if os.path.exists(tmp): os.unlink(tmp)
+        raise
 
 
 def safe_path(raw):
@@ -58,9 +96,61 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def authorized(self):
+    def authorized(self, key=None):
+        key = TOKEN if key is None else key
         got = self.headers.get('Authorization', '')
-        return got.startswith('Bearer ') and hmac.compare_digest(got[7:].strip(), TOKEN)
+        return got.startswith('Bearer ') and hmac.compare_digest(got[7:].strip(), key)
+
+    def read_body(self, limit):
+        """The request body, or None after replying with the error."""
+        try:
+            n = int(self.headers.get('Content-Length', ''))
+        except ValueError:
+            self.reply(411, {'ok': False, 'error': 'Content-Length required'}); return None
+        if n < 0 or n > limit:
+            self.reply(413, {'ok': False, 'error': f'body over {limit} bytes'}); return None
+        data = self.rfile.read(n)
+        if len(data) != n:
+            self.reply(400, {'ok': False, 'error': 'upload cut short'}); return None
+        return data
+
+    def put_groups(self, path):
+        parts = path[len('/api/groups/'):].strip('/').split('/')
+        if len(parts) != 4 or not all(SLUG.match(x) for x in parts) or parts[3] not in GROUP_SETS.get(parts[2], {}):
+            return self.reply(400, {'ok': False, 'error': 'path not allowed'})
+        valid = GROUP_SETS[parts[2]][parts[3]]
+        if not EDITOR_KEY:
+            return self.reply(503, {'ok': False, 'error': 'group saving is off (no editor key on the server)'})
+        if not self.authorized(EDITOR_KEY):
+            return self.reply(401, {'ok': False, 'error': 'bad editor key'})
+        data = self.read_body(16384)
+        if data is None:
+            return
+        try:
+            body = json.loads(data)
+            groups, mode = body['groups'], body.get('from', 'now')
+            ok = (mode in ('now', 'all') and isinstance(groups, dict) and len(groups) <= 40 and
+                  all(isinstance(k, str) and 0 < len(k) <= 40 and not any(ch in k for ch in '<>"&') and valid(v)
+                      for k, v in groups.items()))
+        except (ValueError, KeyError, TypeError):
+            ok = False
+        if not ok:
+            return self.reply(400, {'ok': False, 'error': 'groups must be {"Player": value}, from "now" or "all"'})
+        dest = os.path.realpath(os.path.join(SITE, 'data', *parts[:3], f'groups-{parts[3]}.json'))
+        if not dest.startswith(SITE + os.sep):
+            return self.reply(400, {'ok': False, 'error': 'path not allowed'})
+        with GROUP_LOCK:
+            changes = []
+            if mode == 'now' and os.path.exists(dest):
+                try:
+                    with open(dest, encoding='utf-8') as f:
+                        changes = json.load(f).get('changes', [])
+                except (OSError, ValueError):
+                    changes = []
+            changes.append({'at': 0 if mode == 'all' else int(time.time()), 'groups': dict(sorted(groups.items()))})
+            changes = sorted(changes, key=lambda c: c.get('at', 0))[-500:]
+            write_atomic(dest, json.dumps({'changes': changes}, ensure_ascii=False, indent=1).encode())
+        self.reply(200, {'ok': True, 'changes': changes})
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -72,6 +162,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         path = urlsplit(self.path).path
+        if path.startswith('/api/groups/'):
+            return self.put_groups(path)
         if not path.startswith('/api/files/'):
             return self.reply(404, {'ok': False, 'error': 'not found'})
         if not self.authorized():
@@ -79,26 +171,11 @@ class Handler(BaseHTTPRequestHandler):
         dest = safe_path(path[len('/api/files/'):])
         if not dest:
             return self.reply(400, {'ok': False, 'error': 'path not allowed'})
-        try:
-            n = int(self.headers.get('Content-Length', ''))
-        except ValueError:
-            return self.reply(411, {'ok': False, 'error': 'Content-Length required'})
-        if n < 0 or n > MAX_BYTES:
-            return self.reply(413, {'ok': False, 'error': f'file over {MAX_BYTES // 1048576} MB'})
-        data = self.rfile.read(n)
-        if len(data) != n:
-            return self.reply(400, {'ok': False, 'error': 'upload cut short'})
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest), prefix='.up-')
-        try:
-            with os.fdopen(fd, 'wb') as f:
-                f.write(data)
-            os.chmod(tmp, 0o644)
-            os.replace(tmp, dest)          # readers see the old file or the new one, never half of one
-        except Exception:
-            if os.path.exists(tmp): os.unlink(tmp)
-            raise
-        self.reply(200, {'ok': True, 'path': os.path.relpath(dest, SITE), 'bytes': n})
+        data = self.read_body(MAX_BYTES)
+        if data is None:
+            return
+        write_atomic(dest, data)
+        self.reply(200, {'ok': True, 'path': os.path.relpath(dest, SITE), 'bytes': len(data)})
 
     def log_message(self, fmt, *args):
         sys.stderr.write('%s %s\n' % (self.command, fmt % args))

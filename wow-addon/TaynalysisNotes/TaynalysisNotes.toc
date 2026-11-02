@@ -1,0 +1,8 @@
+## Interface: 120105
+## Title: Taynalysis Notes
+## Notes: Copies the Twin Fangs kick order and soak groups from the Northern Sky Raid Tools raid note into WoW's chat log the moment the note arrives, so the Taynalysis uploader picks them up without a /reload.
+## Author: Taynalysis
+## Version: 1
+## OptionalDeps: NorthernSkyRaidTools
+
+TaynalysisNotes.lua

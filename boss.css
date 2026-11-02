@@ -19,7 +19,6 @@
 :root[data-accent="warlock"][data-theme="dark"]{--accent:#8788ee}
 :root[data-accent="warlock"][data-theme="dark"] .panel{border-color:#2d4220; box-shadow:0 0 24px -14px rgba(143,209,79,.5)}
 #wlSeg{margin-left:auto;align-self:center}
-#wlSeg:not([hidden]) ~ #themeSeg{margin-left:0}
 :root[data-accent="warlock"]:not([data-theme="dark"]) .panel{border-color:#9ccc6e; box-shadow:0 0 24px -12px rgba(110,190,40,.55)}
 
 *{box-sizing:border-box}
@@ -39,12 +38,12 @@ h1{font-family:var(--f-display);font-weight:700;font-size:1.9rem;margin:0}
 .bosspick::after{content:"";position:absolute;right:.12em;top:50%;width:.36em;height:.36em;border-right:.11em solid currentColor;border-bottom:.11em solid currentColor;transform:translateY(-75%) rotate(45deg);pointer-events:none}
 h2{font-family:var(--f-display);font-weight:600;font-size:1.15rem;margin:0}
 .sub{color:var(--muted);font-size:.95rem}
-#themeSeg{margin-left:auto;align-self:center}
 select{font:600 .9rem var(--f-body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;max-width:100%}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .seg button{border:0;background:transparent;color:var(--ink);font:600 .84rem var(--f-body);padding:6px 11px;cursor:pointer}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button[aria-pressed=true]{background:var(--accent);color:var(--panel)}
+.seg button:disabled{opacity:.35;cursor:not-allowed}   /* a difficulty with no pulls */
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
 .ph{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:flex-start;margin-bottom:10px;min-height:32px}
@@ -230,5 +229,16 @@ td.det .pn{font-weight:600}
 @media (max-width:400px){.mpanel .ovseg button{padding:6px 8px}}   /* the map's overlay switch fits a 360 px phone */
 @media (max-width:400px){table.st.vert{font-size:.6rem} table.st.vert th:not(:first-child),table.st.vert td:not(:first-child){padding-left:1px}}   /* many avoidable columns on a phone */
 
-/* phones: no theme switch (it wrapped badly); they always get the default dark theme */
-@media (max-width:600px){#themeSeg{display:none}}
+
+/* ---- no empty space in a row (Taylor 2026-10-31): Damage sets the bottom row's height and the column beside it ends level
+   (Early deaths fills what's left and scrolls); paired mechanic cards end where the shorter one ends and the taller one
+   scrolls (shared.js fitPairs). Scrolling cards fade at the bottom while there's more (.scrollfit / .more) ---- */
+.scrollfit{overflow-y:auto;min-height:0}
+.scrollfit.more{-webkit-mask-image:linear-gradient(to bottom,#000 82%,transparent);mask-image:linear-gradient(to bottom,#000 82%,transparent)}
+.bottom .stack > .panel{flex:none}
+.bottom .stack > .panel:last-child{flex:1 1 0;min-height:300px;display:flex;flex-direction:column;contain:size}
+.bottom .stack > .panel:last-child > .scrollfit{flex:1 1 0}
+.mods{align-items:start}
+.mods > .panel{display:flex;flex-direction:column}
+.mods > .panel.fit > .tw{flex:1 1 0}
+@media (max-width:800px){.bottom .stack > .panel:last-child{contain:none;flex:none;min-height:0}.bottom .stack > .panel:last-child > .scrollfit{flex:none;max-height:420px}}

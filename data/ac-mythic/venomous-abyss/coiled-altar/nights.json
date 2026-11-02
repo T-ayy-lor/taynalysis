@@ -1,0 +1,218 @@
+{
+ "nights": [
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-081926_201636.json",
+   "log": "WoWCombatLog-081926_201636.txt",
+   "date": "8/19/2026",
+   "diff": 14,
+   "pulls": 4,
+   "kill": true,
+   "best": 0.127,
+   "byDiff": {
+    "14": {
+     "pulls": 4,
+     "kills": 1,
+     "best": 0.127
+    }
+   },
+   "updated": "2026-08-20T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-082726_170239.json",
+   "log": "WoWCombatLog-082726_170239.txt",
+   "date": "8/27/2026",
+   "diff": 15,
+   "pulls": 3,
+   "kill": false,
+   "best": 0.552,
+   "byDiff": {
+    "15": {
+     "pulls": 3,
+     "kills": 0,
+     "best": 0.552
+    }
+   },
+   "updated": "2026-08-28T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-083126_201802.json",
+   "log": "WoWCombatLog-083126_201802.txt",
+   "date": "8/31/2026",
+   "diff": 14,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "14": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-09-01T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-090226_201533.json",
+   "log": "WoWCombatLog-090226_201533.txt",
+   "date": "9/2/2026",
+   "diff": 15,
+   "pulls": 5,
+   "kill": false,
+   "best": 0.323,
+   "byDiff": {
+    "15": {
+     "pulls": 5,
+     "kills": 0,
+     "best": 0.323
+    }
+   },
+   "updated": "2026-09-03T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-090326_201544.json",
+   "log": "WoWCombatLog-090326_201544.txt",
+   "date": "9/3/2026",
+   "diff": 15,
+   "pulls": 10,
+   "kill": true,
+   "best": 0.036,
+   "byDiff": {
+    "15": {
+     "pulls": 10,
+     "kills": 1,
+     "best": 0.036
+    }
+   },
+   "updated": "2026-09-04T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-090726_202058.json",
+   "log": "WoWCombatLog-090726_202058.txt",
+   "date": "9/7/2026",
+   "diff": 14,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.002,
+   "byDiff": {
+    "14": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.002
+    }
+   },
+   "updated": "2026-09-08T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-090926_201349.json",
+   "log": "WoWCombatLog-090926_201349.txt",
+   "date": "9/9/2026",
+   "diff": 15,
+   "pulls": 3,
+   "kill": true,
+   "best": 0.592,
+   "byDiff": {
+    "15": {
+     "pulls": 3,
+     "kills": 1,
+     "best": 0.592
+    }
+   },
+   "updated": "2026-09-10T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-091626_201838.json",
+   "log": "WoWCombatLog-091626_201838.txt",
+   "date": "9/16/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-09-17T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-092326_201630.json",
+   "log": "WoWCombatLog-092326_201630.txt",
+   "date": "9/23/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.995,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.995
+    }
+   },
+   "updated": "2026-09-24T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-093026_201753.json",
+   "log": "WoWCombatLog-093026_201753.txt",
+   "date": "9/30/2026",
+   "diff": 15,
+   "pulls": 3,
+   "kill": true,
+   "best": 0.19,
+   "byDiff": {
+    "15": {
+     "pulls": 3,
+     "kills": 1,
+     "best": 0.19
+    }
+   },
+   "updated": "2026-10-01T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-100726_201903.json",
+   "log": "WoWCombatLog-100726_201903.txt",
+   "date": "10/7/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-10-08T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-101426_202321.json",
+   "log": "WoWCombatLog-101426_202321.txt",
+   "date": "10/14/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-10-15T03:30:00+00:00",
+   "earlier": true
+  }
+ ]
+}

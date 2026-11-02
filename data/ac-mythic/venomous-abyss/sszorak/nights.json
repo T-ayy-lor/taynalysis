@@ -1,6 +1,165 @@
 {
  "nights": [
   {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-081926_201636.json",
+   "log": "WoWCombatLog-081926_201636.txt",
+   "date": "8/19/2026",
+   "diff": 14,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "14": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-08-20T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-082626_202317.json",
+   "log": "WoWCombatLog-082626_202317.txt",
+   "date": "8/26/2026",
+   "diff": 15,
+   "pulls": 7,
+   "kill": false,
+   "best": 0.4249823516989517,
+   "byDiff": {
+    "15": {
+     "pulls": 7,
+     "kills": 0,
+     "best": 0.4249823516989517
+    }
+   },
+   "updated": "2026-08-27T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-082726_170239.json",
+   "log": "WoWCombatLog-082726_170239.txt",
+   "date": "8/27/2026",
+   "diff": 15,
+   "pulls": 7,
+   "kill": true,
+   "best": 0.17904438275817086,
+   "byDiff": {
+    "15": {
+     "pulls": 7,
+     "kills": 1,
+     "best": 0.17904438275817086
+    }
+   },
+   "updated": "2026-08-28T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-083126_201802.json",
+   "log": "WoWCombatLog-083126_201802.txt",
+   "date": "8/31/2026",
+   "diff": 14,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.999883580752369,
+   "byDiff": {
+    "14": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.999883580752369
+    }
+   },
+   "updated": "2026-09-01T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-090226_201533.json",
+   "log": "WoWCombatLog-090226_201533.txt",
+   "date": "9/2/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-09-03T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-090926_201349.json",
+   "log": "WoWCombatLog-090926_201349.txt",
+   "date": "9/9/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.31783119228968293,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.31783119228968293
+    }
+   },
+   "updated": "2026-09-10T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-091626_201838.json",
+   "log": "WoWCombatLog-091626_201838.txt",
+   "date": "9/16/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.9997878859893581,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.9997878859893581
+    }
+   },
+   "updated": "2026-09-17T03:30:00+00:00",
+   "earlier": true
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-092826_202009.json",
+   "log": "WoWCombatLog-092826_202009.txt",
+   "date": "9/28/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.13200917082990016,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.13200917082990016
+    }
+   },
+   "updated": "2026-09-29T03:00:00+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-100526_201623.json",
+   "log": "WoWCombatLog-100526_201623.txt",
+   "date": "10/5/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.8131939249867176,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.8131939249867176
+    }
+   },
+   "updated": "2026-10-06T03:00:00+00:00"
+  },
+  {
    "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-101526_202041.json",
    "log": "WoWCombatLog-101526_202041.txt",
    "date": "10/15/2026",
@@ -9,6 +168,23 @@
    "kill": false,
    "best": 0.6847339364521683,
    "updated": "2026-10-31T22:53:31+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-101926_202253.json",
+   "log": "WoWCombatLog-101926_202253.txt",
+   "date": "10/19/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-10-20T03:00:00+00:00"
   },
   {
    "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-102126_201753.json",

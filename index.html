@@ -8,45 +8,53 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600&display=swap">
 <style>
 :root{
-  --bg:#fbe4ee; --panel:#fff2f8; --ink:#4a1832; --muted:#93506f; --line:#f2c3d8; --accent:#c23d7e; --crit:#c0392b;
+  --bg:#fbe4ee; --panel:#fff2f8; --ink:#4a1832; --muted:#93506f; --line:#f2c3d8; --accent:#c23d7e; --crit:#c0392b; --good:#2e8b57;
   --f-display:"Barlow Semi Condensed","Arial Narrow",sans-serif;
   --f-body:"Source Sans 3",system-ui,-apple-system,sans-serif;
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#121113; --panel:#19181a; --ink:#ebe8ea; --muted:#a19ba0; --line:#302d30; --accent:#ec8ab8; --crit:#ff6b5e; color-scheme:dark}}
+  --bg:#121113; --panel:#19181a; --ink:#ebe8ea; --muted:#a19ba0; --line:#302d30; --accent:#ec8ab8; --crit:#ff6b5e; --good:#6fd39a; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#121113; --panel:#19181a; --ink:#ebe8ea; --muted:#a19ba0; --line:#302d30; --accent:#ec8ab8; --crit:#ff6b5e; color-scheme:dark}
+  --bg:#121113; --panel:#19181a; --ink:#ebe8ea; --muted:#a19ba0; --line:#302d30; --accent:#ec8ab8; --crit:#ff6b5e; --good:#6fd39a; color-scheme:dark}
 *{box-sizing:border-box}
 *{scrollbar-width:none}
 *::-webkit-scrollbar{display:none;width:0;height:0}
 html,body{margin:0;overflow-x:hidden}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45}
 .wrap{max-width:560px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 48px;display:flex;flex-direction:column;align-items:center}
-.top{align-self:stretch;display:flex;justify-content:flex-end}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .seg button{border:0;background:transparent;color:var(--ink);font:600 .8rem var(--f-body);padding:4px 9px;cursor:pointer}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button[aria-pressed=true]{background:var(--accent);color:var(--panel)}
+.seg button:disabled{opacity:.35;cursor:not-allowed}   /* a difficulty with no pulls */
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 h1{font-family:var(--f-display);font-weight:700;font-size:clamp(2.6rem,13vw,4.6rem);letter-spacing:.06em;line-height:1;text-transform:uppercase;margin:28px 0 0;text-align:center}
 h1 .acc{color:var(--accent)}   /* the T and Y of TAYNALYSIS in the paladin pink */
+h1 a{color:inherit;text-decoration:none}   /* the title starts over: no team, no difficulty */
+h1 a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 .step{font-family:var(--f-display);font-weight:600;font-size:1.35rem;color:var(--muted);margin:30px 0 10px;text-align:center}
 .step:first-of-type{margin-top:22px}
-.teampick{position:relative;width:min(100%,340px)}
-.teampick select{appearance:none;-webkit-appearance:none;width:100%;font:600 1.05rem var(--f-body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:11px 40px 11px 14px;cursor:pointer}
+.step.sm{font-size:1.15rem;margin-bottom:6px}   /* the team and difficulty steps: one size down from boss, cropped tight */
+.teampick{position:relative;width:min(100%,230px)}   /* widened by script to the difficulty switch's width */
+.teampick select{appearance:none;-webkit-appearance:none;width:100%;font:600 .9rem var(--f-body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 28px 5px 10px;cursor:pointer}
 .teampick select:invalid{color:var(--muted)}
 .teampick select:hover{border-color:var(--accent)}
 .teampick select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .teampick select option{color:var(--ink);background:var(--panel)}
-.teampick::after{content:"";position:absolute;right:17px;top:50%;width:7px;height:7px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-70%) rotate(45deg);pointer-events:none}
-.bosses{list-style:none;margin:0;padding:0;width:100%;display:flex;flex-direction:column;gap:8px}
+.teampick::after{content:"";position:absolute;right:11px;top:50%;width:6px;height:6px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-70%) rotate(45deg);pointer-events:none}
+.bosses{list-style:none;margin:26px 0 0;padding:0;width:100%;display:flex;flex-direction:column;gap:8px}
 .boss{position:relative;display:grid;grid-template-columns:128px minmax(0,1fr);align-items:center;height:66px;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--ink);text-decoration:none;transition:border-color .15s}
 .boss>*{transition:opacity .35s,filter .35s}
 .pic{height:100%;border-right:1px solid var(--line);border-radius:7px 0 0 7px;overflow:hidden;background:color-mix(in srgb,var(--line) 55%,var(--panel))}
 .pic img{display:block;width:100%;height:100%;object-fit:contain}   /* Encounter Journal portraits: 128x64 */
 .nm{font-family:var(--f-display);font-weight:600;font-size:1.3rem;letter-spacing:.01em;text-align:center;padding:0 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.15}
-.nm .nt{display:block;font:600 .74rem var(--f-body);letter-spacing:0;color:var(--crit)}   /* "Needs testing": page not checked on a raid night yet */
+.nm .ps{display:block;font:600 .78rem var(--f-body);letter-spacing:0;color:var(--muted)}   /* pulls on the chosen difficulty, killed or best health */
+.nm .ps .k{color:var(--good)}
+/* difficulty picker: same switch as the boss pages, bigger; dim until a team is chosen */
+.diffpick button{font-size:.95rem;padding:8px 16px}
+.diffpick button span{font-family:ui-monospace,Menlo,monospace;font-weight:400;font-size:.82rem;margin-left:4px;opacity:.75}
+.diffpick.locked{opacity:.22;filter:grayscale(1)}
 a.boss:hover{border-color:var(--accent)}
 a.boss:hover .nm{color:var(--accent)}
 .boss:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -58,85 +66,113 @@ a.boss:hover .nm{color:var(--accent)}
 /* "Not yet supported" / "Choose your team first": on hover, keyboard focus, or a tap */
 .boss[data-tip]::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);background:var(--ink);color:var(--bg);font:600 .8rem var(--f-body);padding:5px 9px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .12s;z-index:2}
 .boss[data-tip]:hover::after,.boss[data-tip]:focus-visible::after,.boss[data-tip].tip::after{opacity:1}
-@media (max-width:420px){ .boss{grid-template-columns:104px minmax(0,1fr);height:54px} .nm{font-size:1.1rem;padding:0 8px} .nm .nt{font-size:.68rem} }
-/* phones: no theme switch (it wrapped badly); they always get the default dark theme */
-@media (max-width:600px){.top{display:none}}
+@media (max-width:420px){ .boss{grid-template-columns:104px minmax(0,1fr);height:54px} .nm{font-size:1.1rem;padding:0 8px} }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top">
-    <div class="seg" role="group" aria-label="Color theme">
-      <button type="button" id="thLight" aria-pressed="false">Light</button>
-      <button type="button" id="thDark" aria-pressed="true">Dark</button>
-    </div>
-  </div>
-  <h1><span class="acc">T</span>a<span class="acc">y</span>nalysis</h1>
-  <label class="step" for="team">Select your team</label>
+  <h1><a href="./?team=" id="home" title="Start over"><span class="acc">T</span>a<span class="acc">y</span>nalysis</a></h1>
+  <label class="step sm" for="team">select your team</label>
   <div class="teampick">
     <select id="team" required>
-      <option value="" disabled selected hidden>Choose a team</option>
+      <option value="" disabled selected hidden>choose a team</option>
     </select>
   </div>
-  <h2 class="step" id="bossHead">Select boss</h2>
-  <ol class="bosses locked" id="bosses" aria-labelledby="bossHead"></ol>
+  <h2 class="step sm" id="diffHead">select difficulty</h2>
+  <div class="seg diffpick locked" id="diffSeg" role="group" aria-labelledby="diffHead">
+    <button type="button" data-d="14" disabled>normal<span></span></button><button type="button" data-d="15" disabled>heroic<span></span></button><button type="button" data-d="16" disabled>mythic<span></span></button>
+  </div>
+  <ol class="bosses locked" id="bosses" aria-label="Bosses"></ol>
 </div>
 
 <script src="shared.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 
-// ---- theme (same setting as the boss pages) ----
-function setTheme(t, remember){
-  document.documentElement.dataset.theme = t;
-  $('thLight').setAttribute('aria-pressed', String(t === 'light')); $('thDark').setAttribute('aria-pressed', String(t === 'dark'));
-  if (remember){ try { localStorage.setItem('vir-theme', t); } catch (e) {} }
-}
-(() => { let saved = null; try { if (!matchMedia('(max-width:600px)').matches) saved = localStorage.getItem('vir-theme'); } catch (e) {} setTheme(saved || 'dark', false); })();
-$('thLight').onclick = () => setTheme('light', true);
-$('thDark').onclick = () => setTheme('dark', true);
+document.documentElement.dataset.theme = 'dark';   // dark only: the light theme and its switch were removed (2026-10-31)
 
 // ---- team picker, then the boss list (dim until a team is chosen; bosses without a page stay grey) ----
 const sel = $('team'), list = $('bosses');
-TEAMS.forEach(t => sel.add(new Option(t.name, t.id)));
+TEAMS.forEach(t => sel.add(new Option(t.name.toLowerCase(), t.id)));   // the home page's labels are all lowercase
 const esc = s => String(s).replace(/[&<>"]/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch]));
-// a team with no raid nights uploaded yet gets no links at all (any boss's or the activity nights.json with a night in it = data)
-const hasData = {};
+// every boss's nights.json per team: a team with no raid nights uploaded yet gets no links at all (any boss's or the
+// activity nights.json with a night in it = data) and can't be picked in the dropdown
+const hasData = {}, IDX = {};   // IDX[team][boss id] = that boss's nights
 function checkData(id){
   if (id in hasData) return;
   hasData[id] = null;   // checking
   const dirs = ['activity', ...BOSSES.filter(b => b.page).map(b => b.id)];
   Promise.all(dirs.map(d => fetch(`data/${id}/${TIER}/${d}/nights.json?t=${Date.now()}`, {cache: 'no-store'})
-    .then(r => r.ok ? r.json() : null).then(j => !!(j && j.nights && j.nights.length)).catch(() => false)))
-    .then(r => { hasData[id] = r.some(Boolean);
+    .then(r => r.ok ? r.json() : null).then(j => j && j.nights || []).catch(() => [])))
+    .then(r => { IDX[id] = Object.fromEntries(dirs.map((d, i) => [d, r[i]])); hasData[id] = r.some(n => n.length);
       // no data: the team can't be picked in the dropdown either (and a link to it lands on "choose your team")
       const o = [...sel.options].find(x => x.value === id);
-      if (o && !hasData[id]){ o.disabled = true; o.text = teamById(id).name + ' (no data yet)'; }
-      if (sel.value === id) hasData[id] ? renderBosses() : useTeam('', true); });
+      if (o && !hasData[id]){ o.disabled = true; o.text = teamById(id).name.toLowerCase() + ' (no data yet)'; }
+      if (sel.value === id) hasData[id] ? useTeam(id, false) : useTeam('', true); });
 }
+// ---- difficulty: picked here, carried to the boss pages in the address; one with no pulls on an open boss can't be picked ----
+const DN = {14: 'Normal', 15: 'Heroic', 16: 'Mythic'}, dseg = $('diffSeg');
+let diff = null;
+const canOpen = b => b.page && (!b.test || SHOW_UNTESTED);
+// one boss's pulls on a difficulty: nights that hold more than one difficulty carry byDiff; older nights are one difficulty each
+function stats(nights, d){
+  let pulls = 0, kills = 0, best = null;
+  (nights || []).forEach(e => { const s = e.byDiff ? e.byDiff[d] : e.diff === d ? {pulls: e.pulls, kills: e.kill ? 1 : 0, best: e.best} : null;
+    if (!s) return; pulls += s.pulls; kills += s.kills;
+    if (s.best != null && (best == null || s.best < best)) best = s.best; });
+  return {pulls, kills, best};
+}
+const teamPulls = (id, d) => BOSSES.filter(canOpen).reduce((a, b) => a + stats(IDX[id][b.id], d).pulls, 0);
+// a team's difficulty: the one already picked (or the address's) if the team has pulls on it, else the newest night's,
+// else the team's usual one
+function pickDiff(id, want){
+  if (want && teamPulls(id, want)) return want;
+  const newest = BOSSES.filter(canOpen).flatMap(b => IDX[id][b.id]).sort((a, b) => String(a.updated).localeCompare(String(b.updated))).pop();
+  return newest && newest.diff || teamById(id).diff;
+}
+function renderDiffs(){
+  const team = teamById(sel.value), ready = team && IDX[team.id];
+  dseg.classList.toggle('locked', !ready);
+  dseg.querySelectorAll('button').forEach(b => { const d = +b.dataset.d, n = ready ? teamPulls(team.id, d) : 0;
+    b.disabled = !n; b.setAttribute('aria-pressed', String(!!ready && d === diff));
+    b.querySelector('span').textContent = ready ? n : ''; b.title = ready && !n ? `No ${DN[d]} pulls yet` : ''; });
+  // the team dropdown matches the switch's width (which grows with the pull counts)
+  document.querySelector('.teampick').style.width = `min(100%, ${dseg.getBoundingClientRect().width}px)`;
+}
+dseg.querySelectorAll('button').forEach(b => b.onclick = () => { diff = +b.dataset.d; keepUrl(); renderDiffs(); renderBosses(); });
+document.fonts && document.fonts.ready.then(renderDiffs);   // the switch's width changes once the font has loaded
 function renderBosses(){
   const team = teamById(sel.value);
   if (team) checkData(team.id);
-  const data = team && hasData[team.id];
+  const data = team && hasData[team.id] && IDX[team.id];
   list.classList.toggle('locked', !team);
   list.innerHTML = BOSSES.map(b => {
-    const inner = `<span class="pic"><img src="img/bosses/${b.id}.webp" alt="" loading="lazy" onerror="this.remove()"></span><span class="nm">${esc(b.name)}${b.test ? '<span class="nt">Needs testing</span>' : ''}</span>`;
-    if (data && b.page && (!b.test || SHOW_UNTESTED)) return `<li><a class="boss" href="${bossUrl(b.page, team.id)}">${inner}</a></li>`;
+    const s = data && canOpen(b) ? stats(IDX[team.id][b.id], diff) : null;
+    const line = s && s.pulls ? `<span class="ps">${s.pulls} pull${s.pulls === 1 ? '' : 's'} · ${s.kills ? '<span class="k">Killed</span>' : s.best != null ? `best ${(s.best * 100).toFixed(1)}%` : 'no kill'}</span>` : '';
+    const inner = `<span class="pic"><img src="img/bosses/${b.id}.webp" alt="" loading="lazy" onerror="this.remove()"></span><span class="nm">${esc(b.name)}${line}</span>`;
+    if (s && s.pulls) return `<li><a class="boss" href="${bossUrl(b.page, team.id, diff)}">${inner}</a></li>`;
     const tip = !team ? 'Choose your team first' : !b.page ? 'Not yet supported' : hasData[team.id] === false ? 'No data for this team yet'
-      : !data ? 'Checking for data…' : 'Needs testing';   // untested pages stay closed (SHOW_UNTESTED)
+      : !data ? 'Checking for data…' : !canOpen(b) ? 'Needs testing' : `No ${DN[diff]} pulls yet`;   // untested pages stay closed (SHOW_UNTESTED)
     return `<li><span class="boss${team ? ' off' : ''}" data-tip="${tip}" tabindex="0" aria-disabled="true">${inner}</span></li>`;
   }).join('');
 }
+// keep the team and difficulty in the address, so Back from a boss page (and a shared link) lands on the same choice
+function keepUrl(){
+  history.replaceState(null, '', sel.value ? '?team=' + encodeURIComponent(sel.value) + (diff ? '&diff=' + diff : '') : location.pathname);
+}
 function useTeam(id, push){
   sel.value = teamById(id) ? id : '';
-  // keep the team in the address, so Back from a boss page (and a shared link) lands on the same team
-  if (push) history.replaceState(null, '', sel.value ? '?team=' + encodeURIComponent(sel.value) : location.pathname);
-  renderBosses();
+  diff = sel.value && IDX[sel.value] ? pickDiff(sel.value, diff || URL_DIFF || DEFAULT_DIFF) : null;
+  if (push) keepUrl();
+  renderDiffs(); renderBosses();
 }
 sel.onchange = () => useTeam(sel.value, true);
-useTeam(new URLSearchParams(location.search).get('team'), false);
+// for now the home page opens on AC Mythic, Mythic (Taylor 2026-10-31); the title's "?team=" (empty) starts over with nothing picked
+const DEFAULT_TEAM = 'ac-mythic', DEFAULT_DIFF = 16;
+const urlTeam = () => { const q = new URLSearchParams(location.search).get('team'); return q === null ? DEFAULT_TEAM : q; };
+useTeam(urlTeam(), false);
 TEAMS.forEach(t => checkData(t.id));
-addEventListener('pageshow', () => useTeam(new URLSearchParams(location.search).get('team'), false));
+addEventListener('pageshow', () => useTeam(urlTeam(), false));
 
 // touch screens have no hover: a tap on a grey boss shows its tooltip for a moment
 let tipTimer;

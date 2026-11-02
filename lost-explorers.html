@@ -30,18 +30,70 @@ const waves = p => dedupe(hitsOf(p, 'Blast Wave'), 6).map(h0 => ({t: h0[0], hit:
 // Frostfire Volley: debuffs left on (60 s; clear it in the other element's patch before the next set), patches stood in for nothing
 const volleys = p => castsOf(p, 'Frostfire Volley');
 const leftOn = p => [...auras(p, 'Burning Flames'), ...auras(p, 'Piercing Frost')].filter(a => ((a[2] != null ? a[2] : p.dur) - a[1]) > 20);
-const patchStood = p => [...contacts(p, 'Fire Patch').filter(h => !hadAura(p, h[1], 'Piercing Frost', h[0], 0.5)),
-  ...contacts(p, 'Frost Patch').filter(h => !hadAura(p, h[1], 'Burning Flames', h[0], 0.5))];
 const explosions = p => pulsesOf(p, 'Elemental Explosion').map(x => ({t: x[0], by: [...new Set(hitsOf(p, 'Frostfire Volley').filter(h => Math.abs(h[0] - x[0]) < 1 &&
   (hadAura(p, h[1], 'Burning Flames', h[0] - 0.2, 0) || hadAura(p, h[1], 'Piercing Frost', h[0] - 0.2, 0))).map(h => h[1]))]}));
-// Mighty Thud: three leaps a few seconds apart; Aftershock still hitting someone 3 s after the last leap = they stayed in a crater
+// Mighty Thud: three leaps a few seconds apart; Aftershock still hitting someone 3 s after the last leap = they stayed in a crater.
+// Missed the soak: a living non-tank hit by none of the three leaps (everyone takes part in one soak)
+const aliveAt = (p, n, t) => !p.deaths.some(d => d[1] === n && d[0] < t);
 const thuds = p => dedupe(pulsesOf(p, '#1300237'), 8).map(x0 => { const leaps = pulsesOf(p, '#1300237').filter(x => x[0] >= x0[0] && x[0] < x0[0] + 8), last = leaps[leaps.length - 1][0];
-  return {t: x0[0], leaps: leaps.map(x => x[1].length), stayed: [...new Set(hitsOf(p, 'Aftershock').filter(h => h[0] > last + 3 && h[0] < last + 30).map(h => h[1]))]}; });
+  const soaked = new Set(leaps.flatMap(x => x[1]));
+  return {t: x0[0], leaps: leaps.map(x => x[1].length),
+    missed: Object.keys(p.specs || {}).filter(n => !soaked.has(n) && !isTankIn(p, n) && aliveAt(p, n, x0[0])).sort(byRoster),
+    stayed: [...new Set(hitsOf(p, 'Aftershock').filter(h => h[0] > last + 3 && h[0] < last + 30).map(h => h[1]))]}; });
+// Shell Spin: the bait target is the cast's target (ctgt); a shell that then stuns a non-tank within 5 s was baited badly
+const baits = p => tgts(p, 'Shell Spin').map(([t, n]) => ({t, n,
+  hit: [...new Set(auras(p, 'Shell Spin').filter(a => a[1] >= t && a[1] <= t + 5 && a[0] !== n && !isTankIn(p, a[0])).map(a => a[0]))]}));
+// Mighty Thud per player: soaked (hit by at least one of its three leaps) or missed, for every thud of the pull
+const thudGrid = list => { const P = {}, most = Math.max(0, ...list.map(p => thuds(p).length));
+  list.forEach(p => { const T = thuds(p); if (!T.length) return;
+    Object.keys(p.specs || {}).filter(n => !isTankIn(p, n)).forEach(n => { const r = (P[n] ||= {n, miss: Array(most).fill(0), all: 0, seen: 0}); r.seen++;
+      let ok = true; T.forEach((x, i) => { if (x.missed.includes(n)) { r.miss[i]++; ok = false; } }); if (ok) r.all++; }); });
+  return {most, rows: Object.values(P).sort((a, b) => b.miss.reduce((s, v) => s + v, 0) - a.miss.reduce((s, v) => s + v, 0) || byRoster(a.n, b.n))}; };
 const SHARDS = 7;   // one Shredding Shards cast puts 7 stacks on the tank: more means a second cast without a swap
 const CFG = {
   slug: 'lost-explorers', name: 'The Lost Explorers', enc: ['3497'],
   map: {src: 'img/maps/lost-explorers.webp', cal: {cx: 698.7, cy: 469.6, ppy: 3.033, rot: 0, center: [299.5, 299.5]}},
   modules: [
+    {id: 'bomb', title: 'Explosive Surprise (Gebbo)',
+     one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [...bombs(p).map(b => ({t: b.t, r: [T(b.t), `<td class="what">Bomb on ${esc(b.n)}</td>`, X(b.d == null ? '' : b.d < 45 ? `dropped near the middle (${Math.round(b.d)} yd)` : `at the edge (${Math.round(b.d)} yd)`, b.d != null && b.d < 45 ? 'bad' : 'det')]})),
+       ...waves(p).map(w => ({t: w.t, r: [T(w.t), B('Hit by Blast Wave'), PS(w.hit)]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
+     all: list => perPlayer(list, [{h: 'Hit by Blast Wave', get: p => waves(p).flatMap(w => w.hit.map(n => ({n, t: w.t})))},
+       {h: 'Fungal Burst', get: p => contacts(p, 'Fungal Burst').map(h => ({n: h[1], t: h[0]}))},
+       {h: 'Dropped the bomb near the middle', get: p => bombs(p).filter(b => b.d != null && b.d < 45).map(b => ({n: b.n, t: b.t}))}]),
+     note: 'Bomb players drop it at the edge, away from the mushrooms. Jump over the Blast Wave on a Bouncy Mushroom as it reaches you (not early), then step away before the mushroom bursts.',
+     overlay: {label: 'Blast Wave', get: p => [...bombs(p).filter(b => b.pos).map(b => ({pos: b.pos, t: b.t, color: '#e5b04a', tip: `<b>${esc(b.n)}</b>'s bomb`})),
+       ...hitsOf(p, 'Blast Wave').map(h => ({pos: h[4], n: h[1], t: h[0], mark: 'cross', color: '#ff5a4a', tip: `<b style="color:${color(h[1])}">${esc(h[1])}</b> hit by Blast Wave`}))],
+       key: () => `<span>${keyDot('#e5b04a')}Bomb</span><span>${keyCross('#ff5a4a')}Hit by Blast Wave</span>`}},
+
+    {id: 'thud', title: 'Mighty Thud (Nama)',
+     one: p => { const T = thuds(p); return {head: [['Player', 'l'], ...T.map((x, i) => `Thud ${i + 1}`), 'Soaked all'],
+       rows: Object.keys(p.specs || {}).filter(n => !isTankIn(p, n)).sort(byRoster).map(n => { const miss = T.map(x => x.missed.includes(n)), dead = T.map(x => !aliveAt(p, n, x.t));
+         return [P(n), ...miss.map((m, i) => dead[i] ? '<td class="num dim">dead</td>' : m ? '<td class="num bad">✗</td>' : '<td class="num dim">✓</td>'), miss.some(Boolean) || dead.some(Boolean) ? '<td class="num dim">–</td>' : '<td class="num">✓</td>']; })
+         .sort((a, b) => (b.join('').match(/✗/g) || []).length - (a.join('').match(/✗/g) || []).length)}; },
+     all: list => { const G = thudGrid(list); return {head: [['Player', 'l'], ...Array.from({length: G.most}, (_, i) => `Thud ${i + 1}`), 'Soaked all'],
+       rows: G.rows.map(r => [P(r.n), ...r.miss.map(v => N(v)), V(`${r.all} of ${r.seen}`)])}; },
+     foot: list => { const s = {}; list.forEach(p => thuds(p).forEach(x => x.stayed.forEach(n => inc(s, n)))); const top = Object.entries(s).sort((a, b) => b[1] - a[1]).slice(0, 8);
+       return top.length ? `Still in a crater 3 s after the last leap: ${top.map(([n, c]) => `${pname(n)} ${c}`).join(', ')}.` : ''; },
+     note: 'Each leap is split between everyone within 6 yd: everyone (not tanks) soaks one leap of every thud. ✗ = alive and hit by none of its three leaps. Overall: misses per thud, and in how many pulls they soaked every thud.'},
+
+    {id: 'crate', title: 'Crates and Splinters',
+     one: p => perPlayer([p], [{h: 'Top Splinters', cls: '', get: q => { const m = {}; auras(q, 'Splinters').forEach(a => { m[a[0]] = Math.max(m[a[0]] || 0, a[3]); }); return Object.entries(m).filter(([, v]) => v >= 3).map(([n, v]) => ({n, c: v})); }},
+       {h: 'Under a landing crate', get: q => contacts(q, 'Throw Junk').map(h => ({n: h[1], t: h[0]}))}]),
+     all: list => perPlayer(list, [{h: 'Broke crates up to 3+ Splinters', get: q => q.diff === 16 ? [] : auras(q, 'Splinters').filter(a => a[3] >= 3).map(a => ({n: a[0], t: a[1]}))},
+       {h: 'Under a landing crate', get: q => contacts(q, 'Throw Junk').map(h => ({n: h[1], t: h[0]}))}]),
+     foot: list => { const r = list.reduce((a, p) => a + pulsesOf(p, 'Relic Rupture').length, 0); return r ? `<b style="color:var(--crit)">${r} crate${r === 1 ? '' : 's'} left 25 s: Relic Rupture on the raid.</b>` : ''; },
+     note: 'Share crate breaking so nobody stacks the Splinters bleed (on Mythic every crate bleeds the whole raid: break them one at a time). A crate left 25 s ruptures on the raid.'},
+
+    {id: 'frost', title: 'Frostfire Volley (Iku)',
+     one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [
+       ...explosions(p).map(x => ({t: x.t, r: [T(x.t), B('Elemental Explosion'), PS(x.by)]})),
+       ...leftOn(p).map(a => ({t: a[1], r: [T(a[1]), B('Debuff left on'), X(`${pname(a[0])} kept it ${Math.round((a[2] != null ? a[2] : p.dur) - a[1])} s`)]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
+     all: list => perPlayer(list, [{h: 'Set off an Elemental Explosion', get: p => explosions(p).flatMap(x => x.by.map(n => ({n, t: x.t})))},
+       {h: 'Kept the debuff 20+ s', get: p => leftOn(p).map(a => ({n: a[0], t: a[1]}))}]),
+     note: 'Burning Flames is cleared in a Frost Patch and Piercing Frost in a Fire Patch, before the next set. A missile hitting someone with the other element sets off an Elemental Explosion on the raid. Patches go to the edge.',
+     overlay: {label: 'Frostfire patches', get: p => hitsOf(p, 'Frostfire Volley').filter(h => h[4]).map(h => ({pos: h[4], n: h[1], t: h[0], tip: `<b style="color:${color(h[1])}">${esc(h[1])}</b>'s missile landed here`})),
+       key: () => `<span>${KEY_DOT}Where a missile (and its patch) landed</span>`}},
+
     {id: 'fish', title: "Mor'zahi and the fish",
      one: p => ({head: ['Time', ['What', 'l'], ['Details', 'l']], rows: ascended(p).map(t => [T(t), B('Final Ascension'), X(`no fish before Mor'zahi's energy was full (${fish(p).length} fed before it)`, 'det')])}),
      all: list => ({head: [['Pulls', 'l'], 'Fish fed', 'Final Ascension'], rows: [[`<td class="l">${list.length}</td>`, V(list.reduce((a, p) => a + fish(p).length, 0)), N(list.reduce((a, p) => a + ascended(p).length, 0))]]}),
@@ -56,45 +108,11 @@ const CFG = {
        color: b === 'Nama' ? '#5cc28a' : b === 'Iku' ? '#3fc7eb' : '#e5b04a', tip: `<b>${b}</b><br>all three together for ${Math.round(x.s)} s`}))),
        key: () => `<span>${keyDot('#5cc28a')}Nama</span><span>${keyDot('#3fc7eb')}Iku</span><span>${keyDot('#e5b04a')}Gebbo</span><span>when United Defense went up</span>`}},
 
-    {id: 'crate', title: 'Crates and Splinters',
-     one: p => perPlayer([p], [{h: 'Top Splinters', cls: '', get: q => { const m = {}; auras(q, 'Splinters').forEach(a => { m[a[0]] = Math.max(m[a[0]] || 0, a[3]); }); return Object.entries(m).filter(([, v]) => v >= 3).map(([n, v]) => ({n, c: v})); }},
-       {h: 'Under a landing crate', get: q => contacts(q, 'Throw Junk').map(h => ({n: h[1], t: h[0]}))}]),
-     all: list => perPlayer(list, [{h: 'Broke crates up to 3+ Splinters', get: q => q.diff === 16 ? [] : auras(q, 'Splinters').filter(a => a[3] >= 3).map(a => ({n: a[0], t: a[1]}))},
-       {h: 'Under a landing crate', get: q => contacts(q, 'Throw Junk').map(h => ({n: h[1], t: h[0]}))}]),
-     foot: list => { const r = list.reduce((a, p) => a + pulsesOf(p, 'Relic Rupture').length, 0); return r ? `<b style="color:var(--crit)">${r} crate${r === 1 ? '' : 's'} left 25 s: Relic Rupture on the raid.</b>` : ''; },
-     note: 'Share crate breaking so nobody stacks the Splinters bleed (on Mythic every crate bleeds the whole raid: break them one at a time). A crate left 25 s ruptures on the raid.'},
-
-    {id: 'bomb', title: 'Explosive Surprise (Gebbo)',
-     one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [...bombs(p).map(b => ({t: b.t, r: [T(b.t), `<td class="what">Bomb on ${esc(b.n)}</td>`, X(b.d == null ? '' : b.d < 45 ? `dropped near the middle (${Math.round(b.d)} yd)` : `at the edge (${Math.round(b.d)} yd)`, b.d != null && b.d < 45 ? 'bad' : 'det')]})),
-       ...waves(p).map(w => ({t: w.t, r: [T(w.t), B('Hit by Blast Wave'), PS(w.hit)]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
-     all: list => perPlayer(list, [{h: 'Hit by Blast Wave', get: p => waves(p).flatMap(w => w.hit.map(n => ({n, t: w.t})))},
-       {h: 'Fungal Burst', get: p => contacts(p, 'Fungal Burst').map(h => ({n: h[1], t: h[0]}))},
-       {h: 'Dropped the bomb near the middle', get: p => bombs(p).filter(b => b.d != null && b.d < 45).map(b => ({n: b.n, t: b.t}))}]),
-     note: 'Bomb players drop it at the edge, away from the mushrooms. Jump over the Blast Wave on a Bouncy Mushroom as it reaches you (not early), then step away before the mushroom bursts.',
-     overlay: {label: 'Blast Wave', get: p => [...bombs(p).filter(b => b.pos).map(b => ({pos: b.pos, t: b.t, color: '#e5b04a', tip: `<b>${esc(b.n)}</b>'s bomb`})),
-       ...hitsOf(p, 'Blast Wave').map(h => ({pos: h[4], n: h[1], t: h[0], mark: 'cross', color: '#ff5a4a', tip: `<b style="color:${color(h[1])}">${esc(h[1])}</b> hit by Blast Wave`}))],
-       key: () => `<span>${keyDot('#e5b04a')}Bomb</span><span>${keyCross('#ff5a4a')}Hit by Blast Wave</span>`}},
-
-    {id: 'frost', title: 'Frostfire Volley (Iku)',
-     one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [
-       ...explosions(p).map(x => ({t: x.t, r: [T(x.t), B('Elemental Explosion'), PS(x.by)]})),
-       ...leftOn(p).map(a => ({t: a[1], r: [T(a[1]), B('Debuff left on'), X(`${pname(a[0])} kept it ${Math.round((a[2] != null ? a[2] : p.dur) - a[1])} s`)]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
-     all: list => perPlayer(list, [{h: 'Set off an Elemental Explosion', get: p => explosions(p).flatMap(x => x.by.map(n => ({n, t: x.t})))},
-       {h: 'Kept the debuff 20+ s', get: p => leftOn(p).map(a => ({n: a[0], t: a[1]}))},
-       {h: 'Stood in a patch', get: p => patchStood(p).map(h => ({n: h[1], t: h[0]}))}]),
-     note: 'Burning Flames is cleared in a Frost Patch and Piercing Frost in a Fire Patch, before the next set. A missile hitting someone with the other element sets off an Elemental Explosion on the raid. Patches go to the edge.',
-     overlay: {label: 'Frostfire patches', get: p => hitsOf(p, 'Frostfire Volley').filter(h => h[4]).map(h => ({pos: h[4], n: h[1], t: h[0], tip: `<b style="color:${color(h[1])}">${esc(h[1])}</b>'s missile landed here`})),
-       key: () => `<span>${KEY_DOT}Where a missile (and its patch) landed</span>`}},
-
-    {id: 'thud', title: 'Mighty Thud (Nama)',
-     one: p => ({head: ['Time', 'Soakers per leap', ['Stayed in a crater', 'l']], rows: thuds(p).filter(x => x.stayed.length).map(x => [T(x.t), V(x.leaps.join(' / ')), PS(x.stayed)])}),
-     all: list => perPlayer(list, [{h: 'Stayed in a crater', get: p => thuds(p).flatMap(x => x.stayed.map(n => ({n, t: x.t})))}]),
-     note: 'Each leap is split between everyone within 6 yd: one soak group per mark, circles apart. Knocked from one soak into the next is fine; still in a crater 3 s after the last leap isn\'t.'},
-
     {id: 'shell', title: 'Shell Spin',
-     one: p => perPlayer([p], [{h: 'Stunned', get: q => auras(q, 'Shell Spin').filter(a => !isTankIn(q, a[0])).map(a => ({n: a[0], t: a[1]}))}]),
-     all: list => perPlayer(list, [{h: 'Stunned', get: q => auras(q, 'Shell Spin').filter(a => !isTankIn(q, a[0])).map(a => ({n: a[0], t: a[1]}))}]),
-     note: "Melee bait Nama's shells toward the edge, then step out of their path. Tanks don't count."},
+     one: p => ({head: ['Time', ['Baited by', 'l'], ['Shell stunned', 'l']], rows: baits(p).filter(b => b.hit.length).map(b => [T(b.t), P(b.n), PS(b.hit)])}),
+     all: list => perPlayer(list, [{h: 'Baited bad', get: q => baits(q).filter(b => b.hit.length).map(b => ({n: b.n, t: b.t}))},
+       {h: 'Stunned', get: q => auras(q, 'Shell Spin').filter(a => !isTankIn(q, a[0])).map(a => ({n: a[0], t: a[1]}))}]),
+     note: "Melee bait Nama's shells toward the edge, then step out of their path. Baited bad = the shell they baited stunned someone else (not a tank) within 5 s."},
 
     {id: 'kick', title: 'Icebound Flames', one: p => kickOne(p, ['Icebound Flames']), all: list => kickAll(list, ['Icebound Flames']),
      foot: list => kickFoot(list, ['Icebound Flames']), note: "Kick every one of Iku's casts (2-3 person rotation)."},
@@ -108,7 +126,7 @@ const CFG = {
     short: {'Blast Wave': 'Blast', 'Shell Spin': 'Shell', 'Evil Eyes': 'Eyes', 'Fungal Burst': 'Fungal', 'Spreading Flames': 'Flames', 'Throw Junk': 'Junk', 'Concussive Blast': 'Bomb',
       'Aftershock': 'Crater', 'Fire Patch': 'Fire', 'Frost Patch': 'Frost', 'Deadly Venom': 'Venom'},
     skip: (h, p) => (h[2] === 'Shell Spin' && isTankIn(p, h[1])) || (h[2] === 'Fire Patch' && hadAura(p, h[1], 'Piercing Frost', h[0], 0.5)) || (h[2] === 'Frost Patch' && hadAura(p, h[1], 'Burning Flames', h[0], 0.5)),
-    note: "Damage taken from each (hover a number for how many hits; shields count). A patch doesn't count when you stepped in to clear the other element."},
+    note: "Damage taken from each, then how many hits (×N); shields count. A patch doesn't count when you stepped in to clear the other element."},
   abilities: {'Final Ascension': 1292780, 'Disgusting Fish': 1313303, "Mor'zahi's Command": 1297022, 'United Defense': 1297646, 'Relic Rupture': 1310027,
     'Splinters': 1308853, 'Elemental Explosion': 1295952, 'Burning Flames': 1295928, 'Piercing Frost': 1295954, 'Icebound Flames': 1286921, 'Shell Spin': 1296061,
     'Blast Wave': 1305844, 'Bouncy Mushroom': 1292104, 'Explosive Surprise': 1297625, 'Evil Eyes': 1292388, 'Fungal Burst': 1305618, 'Spreading Flames': 1297650,
