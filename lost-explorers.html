@@ -33,12 +33,14 @@ const leftOn = p => [...auras(p, 'Burning Flames'), ...auras(p, 'Piercing Frost'
 const explosions = p => pulsesOf(p, 'Elemental Explosion').map(x => ({t: x[0], by: [...new Set(hitsOf(p, 'Frostfire Volley').filter(h => Math.abs(h[0] - x[0]) < 1 &&
   (hadAura(p, h[1], 'Burning Flames', h[0] - 0.2, 0) || hadAura(p, h[1], 'Piercing Frost', h[0] - 0.2, 0))).map(h => h[1]))]}));
 // Mighty Thud: three leaps a few seconds apart; Aftershock still hitting someone 3 s after the last leap = they stayed in a crater.
-// Missed the soak: a living non-tank hit by none of the three leaps (everyone takes part in one soak)
+// Missed a soak: the raid stacks for every leap (each hits 12-17 of ~20 non-tanks), so each leap a living non-tank wasn't
+// hit by is one miss (miss[n] = leaps missed of this thud)
 const aliveAt = (p, n, t) => !p.deaths.some(d => d[1] === n && d[0] < t);
 const thuds = p => dedupe(pulsesOf(p, '#1300237'), 8).map(x0 => { const leaps = pulsesOf(p, '#1300237').filter(x => x[0] >= x0[0] && x[0] < x0[0] + 8), last = leaps[leaps.length - 1][0];
-  const soaked = new Set(leaps.flatMap(x => x[1]));
-  return {t: x0[0], leaps: leaps.map(x => x[1].length),
-    missed: Object.keys(p.specs || {}).filter(n => !soaked.has(n) && !isTankIn(p, n) && aliveAt(p, n, x0[0])).sort(byRoster),
+  const miss = {}; Object.keys(p.specs || {}).filter(n => !isTankIn(p, n)).forEach(n => {
+    const c = leaps.filter(x => aliveAt(p, n, x[0]) && !x[1].includes(n)).length; if (c) miss[n] = c; });
+  return {t: x0[0], leaps: leaps.map(x => x[1].length), miss,
+    missed: Object.keys(miss).sort(byRoster),
     stayed: [...new Set(hitsOf(p, 'Aftershock').filter(h => h[0] > last + 3 && h[0] < last + 30).map(h => h[1]))]}; });
 // Shell Spin: the bait target is the cast's target (ctgt); a shell that then stuns a non-tank within 5 s was baited badly
 const baits = p => tgts(p, 'Shell Spin').map(([t, n]) => ({t, n,
@@ -47,7 +49,7 @@ const baits = p => tgts(p, 'Shell Spin').map(([t, n]) => ({t, n,
 const thudGrid = list => { const P = {}, most = Math.max(0, ...list.map(p => thuds(p).length));
   list.forEach(p => { const T = thuds(p); if (!T.length) return;
     Object.keys(p.specs || {}).filter(n => !isTankIn(p, n)).forEach(n => { const r = (P[n] ||= {n, miss: Array(most).fill(0), all: 0, seen: 0}); r.seen++;
-      let ok = true; T.forEach((x, i) => { if (x.missed.includes(n)) { r.miss[i]++; ok = false; } }); if (ok) r.all++; }); });
+      let ok = true; T.forEach((x, i) => { if (x.miss[n]) { r.miss[i] += x.miss[n]; ok = false; } }); if (ok) r.all++; }); });
   return {most, rows: Object.values(P).sort((a, b) => b.miss.reduce((s, v) => s + v, 0) - a.miss.reduce((s, v) => s + v, 0) || byRoster(a.n, b.n))}; };
 const SHARDS = 7;   // one Shredding Shards cast puts 7 stacks on the tank: more means a second cast without a swap
 const CFG = {
@@ -67,14 +69,15 @@ const CFG = {
 
     {id: 'thud', title: 'Mighty Thud (Nama)',
      one: p => { const T = thuds(p); return {head: [['Player', 'l'], ...T.map((x, i) => `Thud ${i + 1}`), 'Soaked all'],
-       rows: Object.keys(p.specs || {}).filter(n => !isTankIn(p, n)).sort(byRoster).map(n => { const miss = T.map(x => x.missed.includes(n)), dead = T.map(x => !aliveAt(p, n, x.t));
-         return [P(n), ...miss.map((m, i) => dead[i] ? '<td class="num dim">dead</td>' : m ? '<td class="num bad">✗</td>' : '<td class="num dim">✓</td>'), miss.some(Boolean) || dead.some(Boolean) ? '<td class="num dim">–</td>' : '<td class="num">✓</td>']; })
-         .sort((a, b) => (b.join('').match(/✗/g) || []).length - (a.join('').match(/✗/g) || []).length)}; },
+       rows: Object.keys(p.specs || {}).filter(n => !isTankIn(p, n)).sort(byRoster).map(n => { const miss = T.map(x => x.miss[n] || 0), dead = T.map(x => !aliveAt(p, n, x.t));
+         const row = [P(n), ...miss.map((m, i) => dead[i] ? '<td class="num dim">dead</td>' : m ? `<td class="num bad">✗ ${m} of ${T[i].leaps.length}</td>` : '<td class="num dim">✓</td>'), miss.some(Boolean) || dead.some(Boolean) ? '<td class="num dim">–</td>' : '<td class="num">✓</td>'];
+         row.m = miss.reduce((a, v) => a + v, 0); return row; })
+         .sort((a, b) => b.m - a.m)}; },
      all: list => { const G = thudGrid(list); return {head: [['Player', 'l'], ...Array.from({length: G.most}, (_, i) => `Thud ${i + 1}`), 'Soaked all'],
        rows: G.rows.map(r => [P(r.n), ...r.miss.map(v => N(v)), V(`${r.all} of ${r.seen}`)])}; },
      foot: list => { const s = {}; list.forEach(p => thuds(p).forEach(x => x.stayed.forEach(n => inc(s, n)))); const top = Object.entries(s).sort((a, b) => b[1] - a[1]).slice(0, 8);
        return top.length ? `Still in a crater 3 s after the last leap: ${top.map(([n, c]) => `${pname(n)} ${c}`).join(', ')}.` : ''; },
-     note: 'Each leap is split between everyone within 6 yd: everyone (not tanks) soaks one leap of every thud. ✗ = alive and hit by none of its three leaps. Overall: misses per thud, and in how many pulls they soaked every thud.'},
+     note: 'Each leap is split between everyone within 6 yd, so the raid (not tanks) stacks for every leap. ✗ 1 of 3 = alive and not hit by 1 of the 3 leaps of that thud. Overall: leaps missed per thud, and in how many pulls they soaked every leap.'},
 
     {id: 'crate', title: 'Crates and Splinters',
      one: p => perPlayer([p], [{h: 'Top Splinters', cls: '', get: q => { const m = {}; auras(q, 'Splinters').forEach(a => { m[a[0]] = Math.max(m[a[0]] || 0, a[3]); }); return Object.entries(m).filter(([, v]) => v >= 3).map(([n, v]) => ({n, c: v})); }},

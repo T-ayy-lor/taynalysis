@@ -215,6 +215,23 @@
    "kill": true,
    "best": 0.18744744934334978,
    "updated": "2026-10-31T22:54:13+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/sszorak/WoWCombatLog-110226_204333.json",
+   "log": "WoWCombatLog-110226_204333.txt",
+   "date": "11/2/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-11-03T02:58:20+00:00"
   }
  ]
 }

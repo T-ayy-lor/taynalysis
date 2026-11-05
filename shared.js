@@ -43,6 +43,17 @@ const RAIDING = inRaidHours();
 const DEF_SCOPE = RAIDING ? 'latest' : 'all';   // what every module's Latest / Overall switch starts on
 // the night a boss page opens on: the newest during raid hours, else all nights (when there's more than one)
 const startNight = ns => !ns.length ? null : !RAIDING && ns.length > 1 ? 'all' : ns[ns.length - 1].key;
+// pull dropdowns say "Overall tonight" when the night picked is tonight's (Eastern date; until 6 AM still counts as the
+// night before) (Taylor 2026-11-04). Night dates are the log's 'm/d/yyyy'.
+function isTonight(date){
+  if (!date) return false;
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {timeZone: 'America/New_York', year: 'numeric', month: 'numeric', day: 'numeric'})
+    .formatToParts(new Date(Date.now() - 6 * 3600e3)).map(x => [x.type, x.value]));
+  return date === `${+p.month}/${+p.day}/${p.year}`;
+}
+// the night picked (its date), or null for All nights
+const viewDate = (ns, view) => !view || view === 'all' ? null : (ns.find(n => n.key === view) || {}).date || null;
+const overallLabel = (n, date) => `Overall${isTonight(date) ? ' tonight' : ''} (${n} pull${n === 1 ? '' : 's'})`;
 
 // ---- "ignore events after N deaths": mechanics stop at the Nth raider death of each pull; meters (damage, healing,
 // dispels) keep the whole pull. One dropdown beside the difficulty buttons; off (–, the whole pull) by default ----
@@ -255,18 +266,21 @@ function drawDispels(el, list, H){   // p.dispels: [t, dispeller, target, debuff
   list.forEach(p => (p.dispels || []).forEach(d => { const r = (P[d[1]] ||= {n: 0, what: {}}); r.n++; r.what[d[3] || '?'] = (r.what[d[3] || '?'] || 0) + 1; }));
   drawBars(el, Object.entries(P).sort((a, b) => b[1].n - a[1].n || H.order(a[0], b[0])).map(([n, r]) => [n, r.n, String(r.n), Object.entries(r.what).map(([k, v]) => `${k} ×${v}`).join(', ')]), H, true);
 }
+// a meme (Taylor 2026-11-04): Spellrift's early deaths are struck through; they still count like everyone's
+const STRUCK = new Set(['Spellrift']);
+const strike = n => STRUCK.has(String(n).split('-')[0]) ? ' style="text-decoration:line-through"' : '';
 function drawDeaths(el, list, H){   // p.deaths: [t, player, last hit by, back up at]; early = the first 3 of a pull
   const N = 3; el.classList.add('st');
   if (list.length <= 1){
     const ds = list.length ? (list[0].deaths || []).slice(0, N) : [];   // nights from before deaths were saved have none
     el.innerHTML = `<tr><th>#</th><th class="l w">Player</th><th class="l">Last hit by</th><th>Time</th></tr>` +
-      ds.map((d, i) => `<tr><td class="n z">${i + 1}</td><td class="l">${H.pname(d[1])}</td><td class="l${d[2] ? '' : ' z'}">${tlEsc(d[2] || '–')}</td><td class="n">${stMss(d[0])}</td></tr>`).join('') +
+      ds.map((d, i) => { const x = strike(d[1]); return `<tr><td class="n z"${x}>${i + 1}</td><td class="l"${x}>${H.pname(d[1])}</td><td class="l${d[2] ? '' : ' z'}"${x}>${tlEsc(d[2] || '–')}</td><td class="n"${x}>${stMss(d[0])}</td></tr>`; }).join('') +
       Array.from({length: N - ds.length}, (_, i) => `<tr><td class="n z">${ds.length + i + 1}</td><td class="l z">—</td><td class="l z">–</td><td class="n z">–</td></tr>`).join('');
     return;
   }
   const P = {}; list.forEach(p => (p.deaths || []).slice(0, N).forEach(d => { P[d[1]] = (P[d[1]] || 0) + 1; }));
   const rows = Object.entries(P).sort((a, b) => b[1] - a[1] || H.order(a[0], b[0]));
-  el.innerHTML = `<tr><th class="w">Player</th><th>Early deaths</th></tr>` + rows.map(([n, c]) => `<tr><td>${H.pname(n)}</td><td class="n">${c}</td></tr>`).join('') +
+  el.innerHTML = `<tr><th class="w">Player</th><th>Early deaths</th></tr>` + rows.map(([n, c]) => `<tr><td${strike(n)}>${H.pname(n)}</td><td class="n"${strike(n)}>${c}</td></tr>`).join('') +
     Array.from({length: Math.max(0, N - rows.length)}, () => `<tr><td class="z">—</td><td class="n z">0</td></tr>`).join('');
 }
 // column sorting for these tables (every heading but #): high to low first, A to Z for names; click again to flip

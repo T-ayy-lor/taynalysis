@@ -906,7 +906,7 @@ const mapCasts = () => { const s = mapPulls(); return CASTS.filter(c => s.has(c.
 function mapPullSelect(){
   const ps = DATA.pulls, sel = $('mapPull');
   const opts = [['latest', ps.length ? `Latest · Pull ${ps[ps.length - 1].n}` : 'Latest pull'], ...ps.slice().reverse().map(p => [String(p.n), pullLabel(p)]),
-    ['all', `Overall (${ps.length} pull${ps.length === 1 ? '' : 's'})`]];
+    ['all', overallLabel(ps.length, viewDate(nights(), SITE.view))]];
   if (!opts.some(o => o[0] === st.mapPull)) st.mapPull = DEF_SCOPE;
   sel.innerHTML = opts.map(([v, tx]) => `<option value="${v}"${v === st.mapPull ? ' selected' : ''}>${esc(tx)}</option>`).join(''); sel.disabled = !ps.length;
   if (typeof syncPullSegs === 'function') syncPullSegs();
@@ -1206,8 +1206,9 @@ async function checkSite(){
       if (!SITE.files[e.file] || !prev || prev.updated !== e.updated){ SITE.files[e.file] = await fetchJSON(e.file); changed = true; }
     }));
     SITE.index = idx; SITE.err = null;
-    // open on the newest night during raid hours, else all nights; after that, never change the night someone is looking at
-    if (!SITE.view) SITE.view = startNight(nights());
+    // the newest night during raid hours, else all nights; a night picked this way follows a newer one when it appears
+    // (a page left open from before tonight's first pull), but a night someone picked stays
+    if (!SITE.view || SITE.view === SITE.autoView){ const v = startNight(nights()); if (SITE.view && v !== SITE.view) changed = true; SITE.view = SITE.autoView = v; }
     const act = await checkActivity();   // other bosses and trash on the timeline
     if (await refreshFlags('sszorak')) changed = true;   // pulls flagged with bad data
     if (changed) applyView(); else if (act) renderTimeline();
@@ -1253,7 +1254,7 @@ const NOTES = {
         "Hits per pull for the whole raid. Hover or tap the graph to see who was hit in a pull. Pick names below to add their lines; click Raid total to hide or show it.",
         "Running count of hits through the pull for the whole raid. Hover or tap the graph to see who had been hit by then. Pick names below to add their lines; click Raid total to hide or show it."]};
 // same wording and order as the other pages: Latest, each pull (newest first), Overall
-const pullOpts = pulls => [['latest', pulls.length ? `Latest · Pull ${pulls[pulls.length - 1].n}` : 'Latest pull'], ...pulls.slice().reverse().map(p => [String(p.n), pullLabel(p)]), ['all', `Overall (${pulls.length} pull${pulls.length === 1 ? '' : 's'})`]];
+const pullOpts = pulls => [['latest', pulls.length ? `Latest · Pull ${pulls[pulls.length - 1].n}` : 'Latest pull'], ...pulls.slice().reverse().map(p => [String(p.n), pullLabel(p)]), ['all', overallLabel(pulls.length, viewDate(nights(), SITE.view))]];
 const pickPulls = (pulls, v) => v === 'all' ? pulls : v === 'latest' ? pulls.slice(-1) : pulls.filter(p => String(p.n) === v);
 // keep each panel the same height whatever view or pull is picked, so the page doesn't jump
 function lockHeight(key, nAll, rowCls, which){

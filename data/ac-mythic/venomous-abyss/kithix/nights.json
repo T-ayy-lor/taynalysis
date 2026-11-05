@@ -37,6 +37,23 @@
    "kill": true,
    "best": 0.99,
    "updated": "2026-10-31T22:54:13+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/kithix/WoWCombatLog-110426_201934.json",
+   "log": "WoWCombatLog-110426_201934.txt",
+   "date": "11/4/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-11-05T04:30:40+00:00"
   }
  ]
 }

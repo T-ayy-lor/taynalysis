@@ -192,6 +192,24 @@
    "log": "WoWCombatLog-102926_203851.txt",
    "date": "10/29/2026",
    "updated": "2026-10-31T22:54:28+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-110226_201949.json",
+   "log": "WoWCombatLog-110226_201949.txt",
+   "date": "11/2/2026",
+   "updated": "2026-11-03T01:35:06+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-110226_204333.json",
+   "log": "WoWCombatLog-110226_204333.txt",
+   "date": "11/2/2026",
+   "updated": "2026-11-03T02:58:20+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/activity/WoWCombatLog-110426_201934.json",
+   "log": "WoWCombatLog-110426_201934.txt",
+   "date": "11/4/2026",
+   "updated": "2026-11-05T04:30:40+00:00"
   }
  ]
 }

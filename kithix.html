@@ -406,7 +406,9 @@ async function checkSite(){
     await Promise.all((idx.nights || []).map(async e => { const have = SITE.files[e.file]; if (!have || have.updated !== e.updated){ SITE.files[e.file] = await fetchJSON(e.file); changed = true; } }));
     if (SITE.index && (SITE.index.nights || []).length !== (idx.nights || []).length) changed = true;
     SITE.index = idx; SITE.err = null;
-    if (!SITE.view) SITE.view = startNight(nights());   // on load only: the newest night during raid hours, else all nights
+    // the newest night during raid hours, else all nights; a night picked this way follows a newer one when it appears
+    // (a page left open from before tonight's first pull), but a night someone picked stays
+    if (!SITE.view || SITE.view === SITE.autoView){ const v = startNight(nights()); if (SITE.view && v !== SITE.view) changed = true; SITE.view = SITE.autoView = v; }
   } catch (e) {
     SITE.err = /404/.test(String(e)) ? null : 'Could not load the data; trying again in a few seconds.';
     if (!SITE.index) SITE.index = {nights: []};
@@ -706,7 +708,7 @@ function render(){
   const viewAll = viewPulls(ns).filter(p => p.diff === st.diff), allDiff = ns.flatMap(n => n.pulls).filter(p => p.diff === st.diff);
   const done = viewAll.filter(p => !p.live), latest = done.length ? done[done.length - 1] : viewAll[viewAll.length - 1];   // a pull still going is partial: only shown when picked
   const opts = [['latest', latest ? `Latest · ${all ? dayDate(latest.night) + ' · ' : ''}Pull ${latest.seq}` : 'Latest pull'],
-    ...viewAll.slice().reverse().map(p => [p.key, pullLabel(p, all)]), ['all', `Overall (${viewAll.length} pull${viewAll.length === 1 ? '' : 's'})`]];
+    ...viewAll.slice().reverse().map(p => [p.key, pullLabel(p, all)]), ['all', overallLabel(viewAll.length, viewDate(ns, SITE.view))]];
   const L = {};
   document.querySelectorAll('select.scope').forEach(el => { const k = el.dataset.s;
     if (st.scope[k] !== 'latest' && st.scope[k] !== 'all' && !viewAll.some(p => p.key === st.scope[k])) st.scope[k] = DEF_SCOPE;

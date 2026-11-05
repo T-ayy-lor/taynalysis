@@ -26,9 +26,10 @@ const NEAR = 8, STACK = 3;   // next to an earlier pool: within 8 yd; stacked: a
 const together = p => dedupe(npcAuras(p, "Ula'tek's Dominance"), 1.5, a => a[3]).map(a => {
   const off = Math.max(...npcAuras(p, "Ula'tek's Dominance").filter(b => Math.abs(b[3] - a[3]) < 1.5).map(b => b[4] != null ? b[4] : p.dur));
   return {t: a[3], s: off - a[3], br: bossAt(p, 'Breath', a[3]), bl: bossAt(p, 'Blood', a[3])}; });
-// Toxic Droplets: each set's soaks (stepping on a droplet), droplets nobody popped (Noxious Blast), Living Venom hits (Heroic+)
+// Toxic Droplets: each set's soaks (stepping on a droplet), droplets nobody popped (Noxious Blast), Living Venom hits (Heroic+).
+// Every droplet hit is its own droplet (hits + unpopped = 20 per Mythic set), so soaks use the raw hits, not merged().
 const dropSets = p => castsOf(p, 'Toxic Droplets').map((t, i, all) => { const end = i + 1 < all.length ? all[i + 1] : p.dur + 1;
-  const soak = {}; hitsOf(p, 'Toxic Droplets').filter(h => h[0] >= t && h[0] < end).forEach(h => inc(soak, h[1]));
+  const soak = {}; (p.hits || []).filter(h => h[2] === 'Toxic Droplets').filter(h => h[0] >= t && h[0] < end).forEach(h => inc(soak, h[1]));
   return {t, soak, over: Object.entries(soak).filter(([, c]) => c >= 3), blast: pulsesOf(p, 'Noxious Blast').filter(x => x[0] >= t && x[0] < end),
     venom: [...new Set(hitsOf(p, 'Living Venom').filter(h => h[0] >= t && h[0] < end).map(h => h[1]))]}; });
 // Blood Venom pools (Heroic+): left where Blighted Blood was dispelled or ran out, and where Clinging Murk (Unstable Miasma) ran out

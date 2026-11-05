@@ -431,6 +431,8 @@ class FangsParser:
     VENOM, DELUGE = '1290336', '1289192'
     SOAK, RUPTURE, DROP = '1289201', '1290338', '1289994'   # walking into a globule / an unsoaked globule bursting on the raid / a falling globule
     GLOB_NPC = '-269194-'                                      # Barbed Bulwark: the globule (its 1303378 shield comes off when it's CC'd)
+    WAVE = '1292807'        # Stir the Depths wave: a hit = this debuff applied (Nov 4: 361 hits, only 48 damage lines)
+    ICHOR_HIT = '1290878'   # each carrier's circle pulses once a second (logged as Ithraz's), hitting the carrier and anyone near
     ICHORS = ('1290814', '1290809')                            # Coiling Ichor debuff on the player (and the boss's cast ID)
     BULWARK, ROUSE, BURST = '1303378', '1308356', '1308385'
     FEAST, FEAST_HITS = '1290516', ('1290662', '1290516')   # the cast, and the slam's damage
@@ -441,11 +443,19 @@ class FangsParser:
     # ^ Eternal Venom itself, Rouse the Brood, Blood Torrent, Toxic Fumes, Tainted Blood, Feasted, the tank's Caustic Deluge debuff
     #   and its damage ticks (1289237: on the tank the whole time, never the cause)
     LABEL = {'1290338': 'Caustic Globule burst (unsoaked)', '1289994': 'Caustic Deluge (falling globule)'}
-    # avoidable hits (Wowhead guide + journal): Stir the Depths waves (1292807; not its raid pulse), Vile Flood, acid
-    # splashes, Coiling Ichor on anyone but its carrier (the page checks), gore pools, Sanguine Storm, Submerge impacts and
-    # slicks, Barbed Bulwark. The page drops tanks for Vile Flood.
+    # avoidable hits (Wowhead guide + journal; reviewed against the Nov 4 / Oct 29 / Nov 2 logs, 2026-11-05): Stir the Depths
+    # waves (1292807; not its raid pulse), Vile Flood, acid splashes, Coiling Ichor on anyone but its carrier (the page checks),
+    # Congealed Gore (1292552 from Coiling Ichor, 1306925 from Sanguine Storm), Sanguine Storm, Noxious Slick, Barbed Bulwark,
+    # Corrosive Spit on anyone but its target (SPIT), Stone Breaker impacts (the page drops tanks), and the bosses' range attacks
+    # when their tank is out of range (Concentrated Spittle, Clotted Bolt). The page drops tanks for Vile Flood and Stone Breaker.
     AVOID = {'1292807': 'Stir the Depths wave', '1294605': 'Vile Flood', '1289994': 'Caustic Deluge splash', '1290878': 'Coiling Ichor',
-             '1292552': 'Congealed Gore', '1306876': 'Sanguine Storm', '1308556': 'Submerge', '1309471': 'Noxious Slick', '1307363': 'Barbed Bulwark'}
+             '1292552': 'Congealed Gore', '1306925': 'Congealed Gore', '1306876': 'Sanguine Storm', '1309471': 'Noxious Slick',
+             '1307363': 'Barbed Bulwark', '1293295': 'Corrosive Spit', '1310371': 'Stone Breaker', '1295107': 'Concentrated Spittle',
+             '1295115': 'Clotted Bolt'}
+    # debuffs you walk into (a pool, a beam, a wave): a hit = the debuff going on; its ticks add to that hit's damage
+    STEP = {'1292807', '1292552', '1306925', '1309471', '1294605'}
+    OWN_GORE = '1292552'      # the gore a Coiling Ichor leaves lands under its carrier: not counted on them for 2.5 s
+    SPIT, SPIT_MARK = '1293295', '1293979'   # Corrosive Spit's hit, and the mark on its target
     # CC auras (cast ID / applied aura ID where they differ) from the raid's classes
     CC = {'221562': 'Asphyxiate', '207167': 'Blinding Sleet', '46968': 'Shockwave', '132168': 'Shockwave', '107570': 'Storm Bolt',
           '132169': 'Storm Bolt', '5246': 'Intimidating Shout', '179057': 'Chaos Nova', '1234195': 'Void Nova', '217832': 'Imprison',
@@ -504,7 +514,7 @@ class FangsParser:
                         twin='twin fangs' in r[2].lower(), dur=0.0, kill=False, ended=False, lastT=0.0,
                         track={}, ctrack={}, specGuid={}, died=[], dmg={}, heal={}, hp={},
                         hits={}, stacks={}, venom=[], deluges=[], rouses=[], glob={}, soaks=[], bursts=[], cc=[], bulwark=set(),
-                        ichor={}, ichorOut=[], casts=[], open={}, feasts=[], feastHits=[], tainted=[], dispels=[], avoid=[])
+                        ichor={}, ichorOut=[], ichorHits=[], ownGore={}, spitOff=[], spitHits=[], casts=[], open={}, feasts=[], feastHits=[], tainted=[], dispels=[], avoid=[])
 
     def close(self, r):
         c = self.cur
@@ -576,6 +586,13 @@ class FangsParser:
             if sid in self.TAINTED and ev in ('SPELL_AURA_APPLIED', 'SPELL_AURA_REFRESH', 'SPELL_AURA_APPLIED_DOSE') and dst.startswith('Player-'):
                 tl = c['tainted']
                 if not any(g == dst and t - t2 < 1.0 for t2, g in tl[-30:]): tl.append((t, dst))   # one entry per second is plenty
+            # a Stir the Depths wave hit is its debuff going on (the wave itself logs no damage; 1292806 is the raid-wide pulse);
+            # the same for the pools and Vile Flood's beam: each time it goes on is a hit
+            if sid in self.STEP and ev == 'SPELL_AURA_APPLIED' and dst.startswith('Player-'):
+                own = sid == self.OWN_GORE and any(d['g'] == dst and 0 <= t - d['off'] <= 2.5 for d in c['ichorOut'][-12:])
+                if own: c['ownGore'][dst] = t
+                else: c['avoid'].append((t, dst, self.AVOID[sid], 0.0))
+            if sid == self.SPIT_MARK and ev == 'SPELL_AURA_REMOVED' and dst.startswith('Player-'): c['spitOff'].append((t, dst))
             if ev == 'SPELL_AURA_APPLIED' and dst.startswith('Player-') and not src.startswith('Player-') and sid not in self.NOT_CAUSE:
                 c['hits'].setdefault(dst, []).append((t, sid, r[10]))      # boss debuffs can cause a stack too (Corrosive Spit's mark, Stir the Depths)
             if sid == self.VENOM and dst.startswith('Player-'):
@@ -632,7 +649,15 @@ class FangsParser:
                 if sid in self.AVOID:          # damage taken, shields included
                     try: a = float(r[k + 19]) - max(float(r[k + 21]), 0) + max(float(r[k + 25]), 0) if ev.endswith('_DAMAGE') else float(r[k + 2]) if r[k] == 'ABSORB' else 0.0
                     except (ValueError, IndexError): a = 0.0
-                    c['avoid'].append((t, dst, self.AVOID[sid], a))
+                    if sid in self.STEP:          # a pool's / wave's ticks: added to the step-in that put the debuff on (above)
+                        if sid == self.OWN_GORE and 0 <= t - c['ownGore'].get(dst, -99) <= 3: pass   # their own gore at the drop
+                        else:
+                            i = next((j for j in range(len(c['avoid']) - 1, max(len(c['avoid']) - 400, 0) - 1, -1) if c['avoid'][j][1] == dst and c['avoid'][j][2] == self.AVOID[sid] and t - c['avoid'][j][0] <= 30), None)
+                            if i is not None: w = c['avoid'][i]; c['avoid'][i] = (w[0], w[1], w[2], w[3] + a)
+                            else: c['avoid'].append((t, dst, self.AVOID[sid], a))
+                    elif sid == self.SPIT: c['spitHits'].append((t, dst, a))   # sorted out at the end of the pull (below)
+                    else: c['avoid'].append((t, dst, self.AVOID[sid], a))
+                    if sid == self.ICHOR_HIT: c['ichorHits'].append((t, dst, a))
                 if sid == self.SOAK: c['soaks'].append((t, dst))
                 elif sid == self.RUPTURE: c['bursts'].append((t, dst))
                 elif sid in self.FEAST_HITS: c['feastHits'].append((t, dst))
@@ -683,7 +708,8 @@ class FangsParser:
             venom = []
             for v in p['venom']:
                 around = [h for h in p['hits'].get(v['g'], []) if -0.35 <= v['t'] - h[0] <= 0.5]
-                cause = [h for h in around if h[1] not in self.NOT_CAUSE]
+                # melee swings never put Eternal Venom on anyone: on a tank one often lands in the same ms as the real hit (Nov 4)
+                cause = [h for h in around if h[1] not in self.NOT_CAUSE and h[2] != 'Melee']
                 okh = [h for h in cause if h[1] in self.OK_VENOM]
                 near = lambda hs: min(hs, key=lambda h: abs(v['t'] - h[0]))
                 if okh: src, ok = self.OK_VENOM[near(okh)[1]], True
@@ -715,6 +741,33 @@ class FangsParser:
                 dt = died.get(d['g'])
                 end = 'open' if d['off'] is None else 'died' if dt is not None and abs(dt - off) <= 0.6 else 'expired'
                 ichor.append({'n': nm(d['g']), 'on': round(d['on'], 2) if d['on'] is not None else None, 'off': round(off, 2), 'end': end, 'pos': pos(d['g'], off)})
+            # Corrosive Spit: the hit on its own target lands as their mark ends (within 0.3 s); anyone else in the line counts
+            # (Nov 4: 26 such hits; a "marked in the last 6 s" rule had dropped 2 of them, players hit by another snake's line)
+            avoid = sorted(p['avoid'] + [(t, g, self.AVOID[self.SPIT], a) for t, g, a in p['spitHits']
+                                              if not any(g2 == g and abs(t - t2) <= 0.3 for t2, g2 in p['spitOff'])], key=lambda x: x[0])
+            # Coiling Ichor hits on other players, and whose circle it was: a carrier's pulse lands in the same ms as its tick on
+            # the carrier itself, so a pulse's owners are the carriers hit in it; each other hit goes to the nearest of them
+            spans = [(d['g'], d['on'] if d['on'] is not None else 0, d['off'] if d['off'] is not None else stop)
+                     for d in p['ichorOut'] + [{'g': g, 'on': on, 'off': None} for g, on in p['ichor'].items()]]
+            carrying = lambda g, t: any(g2 == g and on - 0.2 <= t <= off + 0.3 for g2, on, off in spans)
+            ihits, grp = [], []
+            for h in sorted(p['ichorHits']) + [(1e9, None, 0)]:
+                if grp and h[0] - grp[0][0] > 0.03:
+                    rows = list(grp); owners = []
+                    for g in dict.fromkeys(v for _, v, _ in rows):
+                        if carrying(g, rows[0][0]):
+                            owners.append(g); rows.remove(next(x for x in rows if x[1] == g))   # its own tick
+                    if not owners: owners = [g for g, on, off in spans if on - 0.2 <= grp[0][0] <= off + 0.3]
+                    seen = {}                    # two circles over one player in the same ms: one hit from each, nearest first
+                    for t, v, a in rows:
+                        vp = pos(v, t); ds = []
+                        for o in owners:
+                            if o == v: continue
+                            op = pos(o, t); ds.append((((op[0] - vp[0]) ** 2 + (op[1] - vp[1]) ** 2) ** 0.5 if op and vp else 999, o))
+                        ds.sort(key=lambda x: x[0]); i = seen.get(v, 0); seen[v] = i + 1
+                        if ds: bd, best = ds[min(i, len(ds) - 1)]; ihits.append([round(t, 2), nm(best), nm(v), round(a), round(bd, 1) if bd < 999 else None])
+                    grp = []
+                grp.append(h)
             # Visceral Burst casts (Broodlings of Ithraz) and kicks; the bosses move partway through the fight, so each cast
             # carries where the bosses and the middle of the raid were right then (for its quadrant)
             def boss_at(t):
@@ -770,9 +823,9 @@ class FangsParser:
                         'dur': round(stop, 1), 'kill': p['kill'], 'live': not p['ended'], 'hp': {k: round(v, 4) for k, v in p['hp'].items()},
                         'deaths': deaths, 'bpos': bpos, 'rc': rc,
                         'deluges': [round(t, 2) for t in p['deluges']], 'rouses': [round(t, 2) for t in p['rouses']],
-                        'venom': venom, 'stacks': stacks_max, 'globules': globules, 'soaks': soaks, 'ichor': ichor, 'brood': brood, 'feasts': feasts,
+                        'venom': venom, 'stacks': stacks_max, 'globules': globules, 'soaks': soaks, 'ichor': ichor, 'ichorHits': ihits, 'brood': brood, 'feasts': feasts,
                         'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],
-                        'avoid': [[round(t, 2), nm(g), s, round(v)] for t, g, s, v in p['avoid']],
+                        'avoid': [[round(t, 2), nm(g), s, round(v)] for t, g, s, v in avoid],
                         'dmg': {nm(g): round(v) for g, v in p['dmg'].items()}, 'heal': {nm(g): round(v) for g, v in p['heal'].items()}})
         return {'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'tz': self.tz, 'pulls': out, 'specs': dict(self.specs)}
 

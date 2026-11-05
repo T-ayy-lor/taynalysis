@@ -230,12 +230,15 @@ details.setup summary span{color:var(--muted);font-weight:400}
 .ro.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media (max-width:800px){.ro,.ro.g3{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
 .setwarn{color:var(--warn);font-size:.84rem;margin:10px 0 0}
-.quads{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-@media (max-width:1100px){.quads{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:900px){.quads{grid-template-columns:minmax(0,1fr)}}
+.quads{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;grid-template-areas:"ml fm mr" "rl bk rr"}
+.q-ml{grid-area:ml}.q-fm{grid-area:fm}.q-mr{grid-area:mr}.q-rl{grid-area:rl}.q-rr{grid-area:rr}.q-backup{grid-area:bk}
+/* portrait or narrower: front melee across the top, left | right for melee and ranged, backup across the bottom */
+@media (max-width:1100px),(orientation:portrait){.quads{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"fm fm" "ml mr" "rl rr" "bk bk"}}
+@media (max-width:700px){.quads{grid-template-columns:minmax(0,1fr);grid-template-areas:"fm" "ml" "mr" "rl" "rr" "bk"}}
 .quad{border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
 .quad th{white-space:normal;vertical-align:bottom}
 .quad th:not(:first-child),.quad td:not(:first-child){padding-left:12px}
+td.hov{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;text-decoration-color:var(--muted)}
 .quad .qs{font:400 .78rem var(--f-mono);color:var(--muted);margin:2px 0 6px}
 .clog{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
 .clog span{font:400 .74rem var(--f-mono);border-radius:4px;padding:2px 6px;background:var(--ok-bg)}
@@ -246,7 +249,9 @@ details.setup summary span{color:var(--muted);font-weight:400}
 :root{--mapw:min(760px,max(240px,calc(100svh - 70px)))}
 .mapgrid{grid-template-columns:minmax(0,var(--mapw)) minmax(0,1fr);align-items:stretch}
 .mpanel .mapbox{width:100%;max-width:var(--mapw);margin-left:auto;margin-right:auto}
+.mapgrid .kpanel{grid-column:1/-1}   /* Rouse the Brood kicks: under the map row, or right under the map once the row stacks */
 @media (max-width:1200px),(orientation:portrait){.mapgrid{grid-template-columns:minmax(0,1fr)}.vpanel{contain:none}.vpanel .vt{flex:none;max-height:none}}
+@media (max-width:1200px),(orientation:portrait){.mapgrid .kpanel{order:1}.mapgrid .vpanel{order:2}}
 /* panels in a row are the same height (the tallest sets it); stacked short panels stretch to line up with their neighbour */
 .grid2,.lower,.bottom,.mods{align-items:stretch}
 .bottom .stack > .panel:last-child{flex:1 1 auto}
@@ -307,26 +312,25 @@ details.setup summary span{color:var(--muted);font-weight:400}
       <div class="tw vt"><table id="venomT"></table></div>
       <p class="note">Stacks from anything other than soaking a Caustic Globule, Venomous Emergence or Corrosive Spit. Untick a source to leave it out of the totals; click any heading to sort.</p>
     </div>
+    <div class="panel kpanel" data-diffs="16">
+      <div class="ph"><h2>Rouse the Brood kicks</h2><select class="scope" data-s="kicks" aria-label="Pulls to show"></select></div>
+      <div class="quads" id="kicks"></div>
+      <div id="kickEd"></div>
+      <p class="note">Each Rouse the Brood starts every quadrant's kick order over: the first Visceral Burst is player 1's turn, the next is player 2's, and so on. Anyone dead when a cast starts is skipped, so their turn passes to the next player instead of counting against anyone. <b>Correct</b>: kicked on their turn. <b>Missed</b>: their turn and the cast went off (unless they died before it finished). <b>Stolen</b>: their turn, but someone else kicked it (that's the other player's steal, not a miss). <b>Stole</b>: kicked a cast that was someone else's; a steal in another quadrant counts there and in the kicker's own quadrant too. A cast that stopped some other way (the Broodling died) still uses up that turn but isn't counted either way. <b>Backup</b> kicks on someone else's turn aren't steals; if everyone in a quadrant is dead, the turn goes to the backup. Someone who swapped in for a player on the kick order or soak groups takes that player's spot. Left and right are as the raid sees it, facing the bosses; front melee is between the two bosses.</p>
+    </div>
   </div>
 
   <div class="grid2">
     <div class="panel">
-      <div class="ph"><h2>Caustic Globule CC</h2><select class="scope" data-s="cc" aria-label="Pulls to show"></select></div>
-      <div class="tw"><table id="cc"></table></div>
-      <p class="note">CCs that landed on a Caustic Globule. A CC that was resisted or blocked doesn't count.</p>
-    </div>
-    <div class="panel">
-      <div class="ph"><h2>Caustic Globule soaking</h2><select class="scope" data-s="soak" aria-label="Pulls to show"></select></div>
+      <div class="ph"><h2>Caustic Globules</h2><select class="scope" data-s="soak" aria-label="Pulls to show"></select></div>
       <div class="tw"><table id="soak"></table></div>
       <p class="note" id="soakNote"></p>
     </div>
-  </div>
-
-  <div class="panel" data-diffs="16">
-    <div class="ph"><h2>Rouse the Brood kicks</h2><select class="scope" data-s="kicks" aria-label="Pulls to show"></select></div>
-    <div class="quads" id="kicks"></div>
-    <div id="kickEd"></div>
-    <p class="note">Each Rouse the Brood starts every quadrant's kick order over: the first Visceral Burst is player 1's turn, the next is player 2's, and so on. Anyone dead when a cast starts is skipped, so their turn passes to the next player instead of counting against anyone. <b>Correct</b>: kicked on their turn. <b>Missed</b>: their turn and the cast went off (unless they died before it finished). <b>Covered</b>: their turn, but someone else kicked it (that's the other player's out-of-turn kick, not a miss). <b>Out of turn</b>: kicked a cast that was someone else's. A cast that stopped some other way (the Broodling died) still uses up that turn but isn't counted either way. <b>Backup</b> kicks on someone else's turn aren't out of turn; if everyone in a quadrant is dead, the turn goes to the backup. Someone who swapped in for a player on the kick order or soak groups takes that player's spot. Left and right are as the raid sees it, facing the bosses; front melee is between the two bosses.</p>
+    <div class="panel">
+      <div class="ph"><h2>Coiling Ichor</h2><select class="scope" data-s="ichor" aria-label="Pulls to show"></select></div>
+      <div class="tw"><table id="ichorT"></table></div>
+      <p class="note" id="ichorNote"></p>
+    </div>
   </div>
 
   <div class="panel">
@@ -349,7 +353,7 @@ details.setup summary span{color:var(--muted);font-weight:400}
   <div class="panel">
     <div class="ph"><h2>Avoidable damage taken</h2><select class="scope" data-s="avoid" aria-label="Pulls to show"></select></div>
     <div class="tw"><table id="avoidT"></table></div>
-    <p class="note">Damage taken from each, then how many hits (×N); shields count. Coiling Ichor doesn't count on the player carrying it; Vile Flood doesn't count on tanks.</p>
+    <p class="note">Damage taken from each, then how many hits (×N); shields count. Coiling Ichor doesn't count on the player carrying it, nor their own Congealed Gore in the 2.5 s after it drops under them; Corrosive Spit doesn't count on its target; Vile Flood and Stone Breaker don't count on tanks. Stir the Depths wave, Vile Flood, Congealed Gore and Noxious Slick: every time the player walked into it (its ticks add to the damage); most wave hits do no damage of their own (they cost an Eternal Venom stack). Concentrated Spittle and Clotted Bolt: Vexhul and Ithraz throw these when their tank is out of range.</p>
   </div>
 
   <div class="panel">
@@ -389,7 +393,7 @@ const pct = v => Math.round(v * 100) + '%';
 document.documentElement.dataset.theme = 'dark';   // dark only: the light theme and its switch were removed (2026-10-31)
 
 // ---- view state ----
-const SCOPES = ['map', 'venom', 'cc', 'soak', 'kicks', 'feast', 'avoid', 'dmg', 'heal', 'disp', 'deaths'];
+const SCOPES = ['map', 'venom', 'soak', 'ichor', 'kicks', 'feast', 'avoid', 'dmg', 'heal', 'disp', 'deaths'];
 const QUAD_CFG = {meleeYd: 25, frontYd: 11, flip: false};
 const CAST_LEN = 3.2;   // Visceral Burst's cast time in the logs is 3 s   // bosses stand about 16 yd either side of the middle   // how Broodlings are sorted into quadrants; tuned against real logs
 const st = {scope: Object.fromEntries(SCOPES.map(k => [k, DEF_SCOPE])), ov: '', diff: null};   // ov: 'v:<venom cause>' or 'ichor' ('' = the biggest cause)   // scope: 'latest', 'all' or a pull's key
@@ -414,7 +418,7 @@ function nights(){
   return ns;
 }
 // "ignore events after N deaths" (shared.js cutPull): how each list in a pull is timed; dmg / heal / dispels stay whole
-const CUT_SPEC = {deaths: 'row', deluges: 'num', rouses: 'num', venom: 'obj:t', globules: 'obj:born', soaks: 'row', ichor: 'obj:on', brood: 'obj:t',
+const CUT_SPEC = {deaths: 'row', deluges: 'num', rouses: 'num', venom: 'obj:t', globules: 'obj:born', soaks: 'row', ichor: 'obj:on', ichorHits: 'row', brood: 'obj:t',
   feasts: (v, T) => v.filter(f => f.t <= T).map(f => ({...f, slams: (f.slams || []).filter(s => s.t <= T)})), avoid: 'row'};
 function viewPulls(ns){ return (SITE.view === 'all' ? ns.flatMap(n => n.pulls) : ((ns.find(n => n.key === SITE.view) || {}).pulls || [])).map(p => cutPull(p, CUT_SPEC)); }
 // checked every few seconds; the page only redraws when something actually changed
@@ -425,7 +429,9 @@ async function checkSite(){
     await Promise.all((idx.nights || []).map(async e => { const have = SITE.files[e.file]; if (!have || have.updated !== e.updated){ SITE.files[e.file] = await fetchJSON(e.file); changed = true; } }));
     if (SITE.index && (SITE.index.nights || []).length !== (idx.nights || []).length) changed = true;
     SITE.index = idx; SITE.err = null;
-    if (!SITE.view) SITE.view = startNight(nights());   // on load only: the newest night during raid hours, else all nights
+    // the newest night during raid hours, else all nights; a night picked this way follows a newer one when it appears
+    // (a page left open from before tonight's first pull), but a night someone picked stays
+    if (!SITE.view || SITE.view === SITE.autoView){ const v = startNight(nights()); if (SITE.view && v !== SITE.view) changed = true; SITE.view = SITE.autoView = v; }
   } catch (e) {
     SITE.err = /404/.test(String(e)) ? null : 'Could not load the data; trying again in a few seconds.';
     if (!SITE.index) SITE.index = {nights: []};
@@ -473,6 +479,7 @@ function setupFor(p){   // the kick order and feast groups in force for this pul
   return {kick: s.kick, backup: s.backup, feast: feastOf(p)};
 }
 const kicksNow = () => { const k = groupsAt(GROUPS.kicks, Date.now(), 16); return k ? kickSetup(k) : setup(); };
+const feastNow = () => groupsAt(GROUPS.feast, Date.now(), st.diff) || {};   // the groups saved for from now on (no pulls shown yet)
 const fold = n => n.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, '');   // Shenron matches Shènròn
 function canon(n){   // the name as it's spelled in the roster or the logs
   const f = fold(n), known = [...ROSTER.map(r => r[0]), ...Object.keys(SPEC_OF)];
@@ -664,16 +671,9 @@ function renderTimeline(ns){
 }
 
 // ---- tables ----
-function renderCC(list){
-  // every CC that landed on a Caustic Globule (resisted or immune CCs never apply, so they aren't here)
-  const P = {};
-  people(list).forEach(n => { P[n] = 0; });
-  list.forEach(p => p.globules.forEach(g => g.cc.forEach(([t, n]) => { P[n] = (P[n] || 0) + 1; })));
-  const rows = Object.entries(P).sort((a, b) => b[1] - a[1] || byRoster(a[0], b[0]));
-  $('cc').innerHTML = `<tr><th>#</th><th class="l fill">Player</th><th>CCs</th></tr>` +
-    rows.map(([n, c], i) => `<tr><td class="num dim">${i + 1}</td><td class="l">${pname(n)}</td><td class="num${c ? '' : ' dim'}">${c}</td></tr>`).join('');
-}
 function renderSoak(list, all){
+  // Caustic Globules (Taylor 2026-11-04: the CC and soaking cards in one): CCs that landed on a globule (resisted or immune
+  // CCs never apply, so they aren't here), then one column per Caustic Deluge set
   // one column per Caustic Deluge set; one pull: how many of that set's globules the player soaked.
   // several pulls: the average per pull, over the pulls that reached that set with the player in them
   const sets = Math.max(list.length ? 1 : 3, ...list.map(p => Math.max(p.deluges.length, ...(p.soaks || []).map(x => x[2]), 0)));
@@ -684,19 +684,86 @@ function renderSoak(list, all){
     if (!many) return [tot, String(tot)];
     return ps.length ? [tot, (tot / ps.length).toFixed(1)] : [0, '–'];
   };
-  $('soak').innerHTML = `<tr><th class="l fill">Player</th>${ks.map(k => `<th>Set ${k}</th>`).join('')}</tr>` +
-    people(list).map(n => `<tr><td class="l">${pname(n)}</td>${ks.map(k => { const [v, t] = cell(n, k); return `<td class="num${v ? '' : ' dim'}">${t}</td>`; }).join('')}</tr>`).join('');
-  $('soakNote').textContent = many ? 'Each set is the globules from one Caustic Deluge cast; a cell is the average the player soaked per pull, over the pulls that reached that set.'
-    : 'Each set is the globules from one Caustic Deluge cast; a cell is how many of them the player soaked.';
+  const CC = {}; list.forEach(p => p.globules.forEach(g => g.cc.forEach(([t, n]) => { CC[n] = (CC[n] || 0) + 1; })));
+  const ns = [...new Set([...people(list), ...Object.keys(CC)])].sort((a, b) => (CC[b] || 0) - (CC[a] || 0) || byRoster(a, b));
+  $('soak').innerHTML = `<tr><th class="l fill">Player</th><th>CCs</th>${ks.map(k => `<th>Set ${k}</th>`).join('')}</tr>` +
+    ns.map(n => `<tr><td class="l">${pname(n)}</td><td class="num${CC[n] ? '' : ' dim'}">${CC[n] || 0}</td>${ks.map(k => { const [v, t] = cell(n, k); return `<td class="num${v ? '' : ' dim'}">${t}</td>`; }).join('')}</tr>`).join('');
+  $('soakNote').textContent = 'CCs: CCs that landed on a globule (resisted or blocked ones don\'t count)' + (many ? ', every pull added up. ' : '. ') +
+    (many ? 'Set N: the globules from that Caustic Deluge cast the player soaked, on average per pull, over the pulls that reached that set.'
+      : 'Set N: how many of the globules from that Caustic Deluge cast the player soaked.');
+}
+// ---- Coiling Ichor: whose circle hit other players (uploader ichorHits: [t, carrier, player hit, damage, yd apart]) ----
+// The circle ticks once a second; its first tick comes 1 s after it lands, with the raid still stacked, so it's its own column.
+// Going to a kick: on Mythic, the carrier had a Visceral Burst to kick (their turn by the kick order, or they kicked it) that
+// started up to 4 s after the hit or was still being cast.
+function castTurns(p){   // each Visceral Burst cast's turn-holder, the same way the kicks card works it out
+  const out = [], here = new Set(present(p)), fill = fillIns(p), sp = setupFor(p), pback = (sp.backup || []).filter(Boolean);
+  const swapIn = n => here.has(n) ? n : (Object.keys(fill).find(k => fill[k] === n) || n);
+  QUADS.forEach(([q]) => {
+    const pprio = (sp.kick[q] || []).filter(Boolean), order = pprio.map(swapIn), seqs = {};
+    p.brood.filter(b => broodQuad(p, b) === q).sort((x, y) => x.t - y.t).forEach(b => {
+      const ri = p.rouses.length ? p.rouses.filter(t => t <= b.t + 0.5).length : p.brood.filter(x => x.t <= b.t && !p.brood.some(y => y.t < x.t && y.t > x.t - 20)).length;
+      const sq = (seqs[ri] ||= {ptr: 0}); let exp = null;
+      for (let tries = 0; order.length && tries < order.length; tries++){ const n = order[sq.ptr % order.length]; sq.ptr++; if (!deadAt(p, n, b.t)){ exp = n; break; } }
+      if (!exp && pprio.length) exp = pback.find(n => !deadAt(p, n, b.t)) || null;
+      out.push({t: b.t, exp, by: b.kick ? b.kick.by : null});
+    });
+  });
+  return out;
+}
+function renderIchor(list){
+  // one row per player: what their own circles did to others, and what others' circles did to them (Taylor 2026-11-05)
+  const single = list.length === 1, mythic = st.diff === 16, R = {};
+  const row = n => (R[n] ||= {n, carried: 0, times: [], hits: 0, first: 0, dmg: 0, kick: 0, k1: null, who: {}, taken: 0, tn: 0, from: {}});
+  list.forEach(p => {
+    const turns = mythic ? castTurns(p) : [];
+    const kickFor = (n, t) => turns.find(c => (c.exp === n || c.by === n) && c.t >= t - CAST_LEN && c.t <= t + 4);
+    (p.ichorHits || []).forEach(h => { const r = row(h[2]); r.taken += h[3]; r.tn++; r.from[h[1]] = (r.from[h[1]] || 0) + 1; });
+    p.ichor.forEach(ic => {
+      const hs = (p.ichorHits || []).filter(h => h[1] === ic.n && h[0] >= (ic.on == null ? -1 : ic.on - 0.3) && h[0] <= ic.off + 0.5);
+      if (!hs.length) return;
+      const r = row(ic.n); r.carried++; if (ic.on != null) r.times.push(ic.on);
+      hs.forEach(h => { const first = ic.on != null && h[0] <= ic.on + 1.3, k = kickFor(ic.n, h[0]);
+        if (first) r.first++; else r.hits++; r.dmg += h[3]; r.who[h[2]] = (r.who[h[2]] || 0) + 1;
+        if (k){ if (!first) r.kick++; if (!r.k1) r.k1 = k; } });
+    });
+  });
+  const tip = (h, m) => { const e = Object.entries(m).sort((a, b) => b[1] - a[1]); return e.length ? ` title="${esc(h + ':\n' + e.map(([n, c]) => n + (c > 1 ? ' ×' + c : '')).join('\n'))}"` : ''; };
+  const xn = n => `<span style="color:var(--muted);font-weight:400;font-size:.8em;margin-left:.3em">×${n}</span>`;
+  const rs = Object.values(R).sort((a, b) => b.hits - a.hits || b.first - a.first || b.taken - a.taken || byRoster(a.n, b.n));
+  const kc = mythic ? '<th>Going to a kick</th>' : '';
+  const kick = r => single ? (r.k1 ? `${mss(r.k1.t)} ${r.k1.by === r.n ? 'kicked' : 'their turn'}` : '–') : r.kick;
+  $('ichorT').innerHTML = `<tr><th class="l fill">Player</th><th>${single ? 'Time' : 'Ichors'}</th><th>Hits</th><th>1st tick</th><th>Dealt</th><th>Taken</th>${kc}</tr>` +
+    (rs.length ? rs.map(r => `<tr><td class="l">${pname(r.n)}</td>` +
+      `<td class="num${r.carried ? '' : ' dim'}">${single ? (r.times.length ? r.times.map(mss).join(', ') : '–') : r.carried}</td>` +
+      `<td class="num ${r.hits ? 'bad hov' : 'dim'}"${r.hits ? tip('Hit', r.who) : ''}>${r.hits}</td>` +
+      `<td class="num${r.first ? '' : ' dim'}"${!r.hits && r.first ? tip('Hit', r.who) : ''}>${r.first}</td>` +
+      `<td class="num${r.dmg ? '' : ' dim'}" data-v="${Math.round(r.dmg)}">${big(r.dmg)}</td>` +
+      `<td class="num${r.tn ? ' hov' : ' dim'}" data-v="${Math.round(r.taken)}"${tip('From', r.from)}>${big(r.taken)}${r.tn ? xn(r.tn) : ''}</td>` +
+      (mythic ? `<td class="num${(single ? r.k1 : r.kick) ? (single ? '' : ' meh') : ' dim'}">${kick(r)}</td>` : '') + '</tr>').join('')
+      : `<tr><td class="l dim">—</td><td class="num dim">${single ? '–' : 0}</td><td class="num dim">0</td><td class="num dim">0</td><td class="num dim">0</td><td class="num dim">0</td>${mythic ? `<td class="num dim">${single ? '–' : 0}</td>` : ''}</tr>`);
+  const old = list.length && list.every(p => !p.ichorHits);
+  $('ichorNote').textContent = (old ? 'These pulls were logged before this was tracked. ' : '') +
+    (single ? 'Time: when their Coiling Ichor landed (only ones whose circle hit someone). ' : 'Ichors: how many of theirs hit someone. ') +
+    'Hits: ticks of their circle on other players, not counting the 1st tick (1 s after it lands, with the raid still stacked). Dealt: every tick of theirs on others. Taken: every tick of someone else\'s circle on them (×N ticks). Shields count.' +
+    (mythic ? (single ? ' Going to a kick: they had a Visceral Burst to kick (their turn, or they kicked it) within 4 s of a hit.' : ' Going to a kick: of their Hits, how many came while they had a Visceral Burst to kick (their turn, or they kicked it) within 4 s.') : '') +
+    ' Hover Hits for who was hit, Taken for whose circles.';
 }
 function renderKicks(list, all){
   // shown order = the one in force now (or for the one pull shown); each pull is scored with its own (setupFor)
   const s = list.length === 1 ? setupFor(list[0]) : kicksNow(), single = list.length === 1, backup = (s.backup || []).filter(Boolean);
+  const pl = p => [SITE.view === 'all' ? dayDate(p.night, {weekday: undefined}) : '', p.seq];   // [night (All nights only), pull number]
+  const add = (o, k, p) => (o[k] ||= []).push(pl(p));
+  // Stolen / Stole hover: whose, and in Overall which pulls ("pull #3 ×2" = twice in pull 3)
+  const who = (h, m) => { const e = Object.entries(m).sort((a, b) => b[1].length - a[1].length); if (!e.length) return '';
+    const at = ps => { const g = {}; ps.forEach(([d, n]) => { const c = (g[d] ||= {}); c[n] = (c[n] || 0) + 1; });
+      return ` · pull${ps.length > 1 ? 's' : ''} ` + Object.entries(g).map(([d, c]) => (d ? d + ' ' : '') + Object.keys(c).map(n => '#' + n + (c[n] > 1 ? ` ×${c[n]}` : '')).join(', ')).join('; '); };
+    return ` title="${esc(h + ':\n' + e.map(([n, ps]) => `${n}${ps.length > 1 ? ' ×' + ps.length : ''}${single ? '' : at(ps)}`).join('\n'))}"`; };
   const B = {}; backup.forEach(n => { B[n] = {n, kicks: 0, covered: []}; });
-  const cards = {};
+  const cards = {}, Q = {}, away = [];   // away: steals in another quadrant, also counted in the kicker's own (Taylor 2026-11-04)
   QUADS.forEach(([q, label]) => {
     const prio = (s.kick[q] || []).filter(Boolean);
-    const rows = {}, row = n => (rows[n] ||= {n, turns: 0, ok: 0, miss: 0, cov: 0, out: 0, slot: prio.indexOf(n)});
+    const rows = {}, row = n => (rows[n] ||= {n, turns: 0, ok: 0, miss: 0, cov: 0, out: 0, slot: prio.indexOf(n), stolenBy: {}, stoleFrom: {}});
     if (!list.length) prio.forEach(row);
     let casts = 0, kicked = 0, wentOff = 0; const log = [];
     list.forEach(p => {
@@ -729,32 +796,37 @@ function renderKicks(list, all){
         if (sub){ const r = row(by); r.turns++; r.ok++; if (r.slot < 0) r.slot = pprio.indexOf(exp); }
         else if (by && by !== exp){
           if (isBackup(by)){ const x = (B[by] ||= {n: by, kicks: 0, covered: []}); x.kicks++; x.covered.push(exp); note = ` (backup${exp ? ' for ' + esc(exp) : ''})`; }
-          else row(by).out++;
+          else { const r = row(by); r.out++; add(r.stoleFrom, exp || 'no one', p);
+            const home = QUADS.map(([k]) => k).find(k => k !== q && (sp.kick[k] || []).filter(Boolean).map(swapIn).includes(by));
+            if (home && !pprio.map(swapIn).includes(by)) away.push({home, by, from: (exp || 'no one') + ' (' + label + ')', p}); }
           if (exp) cls = 'other';
         }
         // died while the cast was going (it takes 3 s): not a miss
         const diedOnTheWay = exp && !by && p.deaths.some(d => d[1] === exp && d[0] > b.t && d[0] <= b.t + CAST_LEN);
         if (diedOnTheWay) note = ` (${esc(exp)}'s, died)`;
-        if (exp && counts && !sub && !absent){ const r = row(exp); r.turns++; if (by === exp) r.ok++; else if (by) r.cov++; else if (!diedOnTheWay) r.miss++; }   // someone else kicking it isn't the turn-holder's miss
+        if (exp && counts && !sub && !absent){ const r = row(exp); r.turns++; if (by === exp) r.ok++; else if (by){ r.cov++; add(r.stolenBy, isBackup(by) ? by + ' (backup)' : by, p); } else if (!diedOnTheWay) r.miss++; }   // someone else kicking it isn't the turn-holder's miss
         if (single) log.push(`<span class="${cls === 'ok' ? '' : cls}" title="${esc(`Cast ${sq.k} after Rouse the Brood ${ri || '?'} at ${mss(b.t)} · ${b.kick ? `kicked by ${by}${b.kick.pet ? ' (pet)' : ''} with ${b.kick.spell} after ${b.kick.d.toFixed(2)} s` : b.res === 'completed' ? 'went off' : 'stopped some other way'}${exp ? ' · turn: ' + exp : ''}`)}">${sq.k === 1 && log.length ? '│ ' : ''}${mss(b.t)} ${esc(by || (b.res === 'completed' ? 'went off' : '—'))}${note || (exp && by !== exp && !sub && !absent ? ` (${esc(exp)}'s)` : '')}</span>`);
       });
     });
+    Q[q] = {label, prio, rows, row, casts, kicked, wentOff, log};
+  });
+  away.forEach(a => { const r = Q[a.home].row(a.by); r.out++; add(r.stoleFrom, a.from, a.p); });
+  QUADS.forEach(([q]) => {
+    const {label, prio, rows, casts, kicked, wentOff, log} = Q[q];
     // players on the list who weren't in any of the shown pulls are left out; a fill-in takes their number
     const inRaid = new Set(list.flatMap(p => present(p)));
     const slot = r => r.slot >= 0 ? r.slot + (prio[r.slot] === r.n ? 0 : 0.5) : 99;
     const rs = Object.values(rows).filter(r => !list.length || inRaid.has(r.n) || r.turns || r.out).sort((a, b) => slot(a) - slot(b) || b.out - a.out);
     const nBlank = prio.length ? 0 : q === 'fm' ? 2 : 4;
     const blank = Array.from({length: nBlank}, (_, i) => `<tr><td class="l"><span class="dim">${i + 1}. —</span></td><td class="num dim">0</td><td class="num dim">0</td><td class="num dim">0</td><td class="num dim">0</td></tr>`).join('');
-    const tbl = `<div class="tw"><table><tr><th class="l fill">Kicker</th><th>Correct</th><th>Missed</th><th>Covered</th><th>Out of turn</th></tr>${rs.map(r => {
-      return `<tr><td class="l">${r.slot >= 0 ? `<span class="dim">${r.slot + 1}.</span> ` : ''}${pname(r.n)}</td><td class="num ${r.ok ? 'good' : 'dim'}">${r.ok}</td><td class="num ${r.miss ? 'bad' : 'dim'}">${r.miss}</td><td class="num${r.cov ? '' : ' dim'}">${r.cov}</td><td class="num ${r.out ? 'meh' : 'dim'}">${r.out}</td></tr>`; }).join('')}${blank}</table></div>`;
-    cards[q] = `<div class="quad"><h3>${label}</h3><div class="qs">${casts} cast${casts === 1 ? '' : 's'} · ${kicked} kicked · ${wentOff} went off</div>${tbl}${single && log.length ? `<div class="clog">${log.join('')}</div>` : ''}</div>`;
+    const tbl = `<div class="tw"><table><tr><th class="l fill">Kicker</th><th>Correct</th><th>Missed</th><th>Stolen</th><th>Stole</th></tr>${rs.map(r => {
+      return `<tr><td class="l">${r.slot >= 0 ? `<span class="dim">${r.slot + 1}.</span> ` : ''}${pname(r.n)}</td><td class="num ${r.ok ? 'good' : 'dim'}">${r.ok}</td><td class="num ${r.miss ? 'bad' : 'dim'}">${r.miss}</td><td class="num${r.cov ? ' hov' : ' dim'}"${who('Stolen by', r.stolenBy)}>${r.cov}</td><td class="num ${r.out ? 'meh hov' : 'dim'}"${who('Stole from', r.stoleFrom)}>${r.out}</td></tr>`; }).join('')}${blank}</table></div>`;
+    cards[q] = `<div class="quad q-${q}"><h3>${label}</h3><div class="qs">${casts} cast${casts === 1 ? '' : 's'} · ${kicked} kicked · ${wentOff} went off</div>${tbl}${single && log.length ? `<div class="clog">${log.join('')}</div>` : ''}</div>`;
   });
   const br = Object.values(B);
-  cards.backup = `<div class="quad"><h3>Backup</h3><div class="qs">kicks on someone else's turn</div><div class="tw"><table><tr><th class="l fill">Kicker</th><th>Kicks</th></tr>${
+  cards.backup = `<div class="quad q-backup"><h3>Backup</h3><div class="qs">kicks on someone else's turn</div><div class="tw"><table><tr><th class="l fill">Kicker</th><th>Kicks</th></tr>${
     br.length ? br.map(r => `<tr><td class="l">${pname(r.n)}</td><td class="num${r.kicks ? '' : ' dim'}">${r.kicks}</td></tr>`).join('') : '<tr><td class="l dim">—</td><td class="num dim">0</td></tr>'}</table></div></div>`;
   $('kicks').innerHTML = ['ml', 'fm', 'mr', 'rl', 'backup', 'rr'].map(k => cards[k]).join('');
-  const unk = list.reduce((a, p) => a + p.brood.filter(b => !broodQuad(p, b)).length, 0);
-  if (unk) $('kicks').insertAdjacentHTML('beforeend', `<p class="note" style="grid-column:1/-1">${unk} cast${unk === 1 ? '' : 's'} had no position to place in a quadrant.</p>`);
   groupEditor($('kickEd'), {boss: 'twin-fangs', set: 'kicks', title: 'Edit kick order', label: 'Kick spot',
     options: [...QUADS.flatMap(([q, l]) => Array.from({length: q === 'fm' ? 3 : 5}, (_, i) => [q + (i + 1), `${l} ${i + 1}`])), ...[1, 2, 3].map(i => ['backup' + i, 'Backup ' + i])],
     names: [...new Set([...people(all || list), ...TEAM_ROSTER.map(r => r[0])])].sort(byRoster), current: kickMap(kicksNow()), changes: GROUPS.kicks,
@@ -794,10 +866,12 @@ const isHealer = n => (ROSTER.find(r => r[0] === n) || [])[2] === 'Healer' || [1
 const isTank = n => (ROSTER.find(r => r[0] === n) || [])[2] === 'Tank' || [250, 581, 104, 268, 66, 73].includes(SPEC_OF[n]);
 const H = {pname, order: byRoster, healer: isHealer, people, color, spell: n => ABILITY[n] || {'Stir the Depths wave': 1292807, 'Caustic Deluge splash': 1289994}[n]};
 // avoidable hits (uploader's FangsParser.AVOID): Coiling Ichor only counts on players near someone else's ichor; Vile Flood not on tanks
-const AVOID_F = ['Stir the Depths wave', 'Vile Flood', 'Caustic Deluge splash', 'Coiling Ichor', 'Congealed Gore', 'Sanguine Storm', 'Submerge', 'Noxious Slick', 'Barbed Bulwark'];
+const AVOID_F = ['Stir the Depths wave', 'Vile Flood', 'Caustic Deluge splash', 'Coiling Ichor', 'Congealed Gore', 'Sanguine Storm', 'Noxious Slick', 'Barbed Bulwark',
+  'Corrosive Spit', 'Stone Breaker', 'Concentrated Spittle', 'Clotted Bolt'];
 const AVOID_SHORT = {'Stir the Depths wave': 'Wave', 'Vile Flood': 'Flood', 'Caustic Deluge splash': 'Splash', 'Coiling Ichor': 'Ichor', 'Congealed Gore': 'Gore',
-  'Sanguine Storm': 'Storm', 'Submerge': 'Submerge', 'Noxious Slick': 'Slick', 'Barbed Bulwark': 'Bulwark'};
-const avoidHits = p => (p.avoid || []).filter(([t, n, s]) => !(s === 'Vile Flood' && isTank(n)) &&
+  'Sanguine Storm': 'Storm', 'Noxious Slick': 'Slick', 'Barbed Bulwark': 'Bulwark', 'Corrosive Spit': 'Spit', 'Stone Breaker': 'Breaker',
+  'Concentrated Spittle': 'Spittle', 'Clotted Bolt': 'Bolt'};
+const avoidHits = p => (p.avoid || []).filter(([t, n, s]) => !((s === 'Vile Flood' || s === 'Stone Breaker') && isTank(n)) &&
   !(s === 'Coiling Ichor' && p.ichor.some(c => c.n === n && (c.on == null || c.on <= t + 0.5) && c.off >= t - 0.5)));
 
 // ---- ability tooltips: ability names link to Wowhead, whose tooltip script shows the in-game ability text on hover ----
@@ -851,7 +925,7 @@ function render(){
   FEAST_INF = inferFeast(viewAll);   // whole nights: the night's pulls on this difficulty
   const done = viewAll.filter(p => !p.live), latest = done.length ? done[done.length - 1] : viewAll[viewAll.length - 1];   // a pull still going is partial: only shown when picked
   const opts = [['latest', latest ? `Latest · ${all ? dayDate(latest.night) + ' · ' : ''}Pull ${latest.seq}` : 'Latest pull'],
-    ...viewAll.slice().reverse().map(p => [p.key, pullLabel(p, all)]), ['all', `Overall (${viewAll.length} pull${viewAll.length === 1 ? '' : 's'})`]];
+    ...viewAll.slice().reverse().map(p => [p.key, pullLabel(p, all)]), ['all', overallLabel(viewAll.length, viewDate(ns, SITE.view))]];
   const L = {};
   document.querySelectorAll('select.scope').forEach(el => { const k = el.dataset.s;
     if (st.scope[k] !== 'latest' && st.scope[k] !== 'all' && !viewAll.some(p => p.key === st.scope[k])) st.scope[k] = DEF_SCOPE;
@@ -863,7 +937,7 @@ function render(){
   $('sub').textContent = '';
   renderTimeline(ns);
   renderMap(viewAll, L.map, L.map.length > 1); renderVenom(L.venom, all);
-  renderCC(L.cc); renderSoak(L.soak, all); renderKicks(L.kicks, all); renderFeast(L.feast);
+  renderSoak(L.soak, all); renderIchor(L.ichor); renderKicks(L.kicks, all); renderFeast(L.feast);
   drawAvoid($('avoidT'), L.avoid.flatMap(avoidHits), AVOID_F, AVOID_SHORT, H);
   drawDamage($('dmg'), L.dmg, H); drawHealing($('heal'), L.heal, H); drawDispels($('disp'), L.disp, H); drawDeaths($('deaths'), L.deaths, H);
   document.querySelectorAll('.panel').forEach(linkify);
@@ -889,6 +963,7 @@ const tKey = t => t.id || 'kicks:' + ((t.closest('.quad') || {}).querySelector?.
 const hText = th => (th.querySelector('.lg') || th).textContent.trim();
 const blankRow = r => !!r.querySelector('td[colspan]') || [...r.querySelectorAll('td.l')].some(td => /^(\d+\.\s*)?—$/.test(td.textContent.trim()));
 function cellVal(td){
+  if (td && td.dataset.v != null) return +td.dataset.v;
   const t = td ? td.textContent.trim().replace(/^\d+\.\s+/, '') : '';
   if (/^-?\d+(\.\d+)?$/.test(t)) return +t;
   const m = t.match(/^(\d+):(\d\d)$/); if (m) return +m[1] * 60 + +m[2];

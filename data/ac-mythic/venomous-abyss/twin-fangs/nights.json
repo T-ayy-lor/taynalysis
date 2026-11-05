@@ -167,6 +167,40 @@
    "kill": false,
    "best": 0.5231,
    "updated": "2026-10-31T22:54:28+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/twin-fangs/WoWCombatLog-110226_204333.json",
+   "log": "WoWCombatLog-110226_204333.txt",
+   "date": "11/2/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-11-03T02:58:20+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/twin-fangs/WoWCombatLog-110426_201934.json",
+   "log": "WoWCombatLog-110426_201934.txt",
+   "date": "11/4/2026",
+   "diff": 16,
+   "pulls": 31,
+   "kill": false,
+   "best": 0.0887,
+   "byDiff": {
+    "16": {
+     "pulls": 31,
+     "kills": 0,
+     "best": 0.0887
+    }
+   },
+   "updated": "2026-11-05T04:30:40+00:00"
   }
  ]
 }
