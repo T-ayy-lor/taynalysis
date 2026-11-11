@@ -4,13 +4,13 @@ Taynalysis uploader: watches your WoW combat log and, after every pull or wipe, 
 to taynalysis.com (or, with --github, to the GitHub Pages copy of the site). Open pages pick it up on their own.
 On start it asks which team the raid is for (or give --team ac-mythic / ac-heroic / ac-weekend, or 1 / 2 / 3).
 Each team's data goes in its own folder, data/<team>/<raid>/<boss>/:
-  Sszorak: positions, Virulence casts, explosions, damage, Tempest -> .../sszorak/<log name>.json, listed in nights.json there
-  Twin Fangs: positions, Eternal Venom, globules, Coiling Ichor, kicks, Ravenous Feast soaks, damage, healing, deaths
+  Sszorak: positions, Virulence casts, explosions, Tempest -> .../sszorak/<log name>.json, listed in nights.json there
+  Twin Fangs: positions, Eternal Venom, globules, Coiling Ichor, kicks, Ravenous Feast soaks, who was in each pull, deaths
               -> .../twin-fangs/<log name>.json, listed in nights.json there; past Mythic kick orders in setup.txt there; groups set on the page in groups-<set>.json
-  Kith'ix (any difficulty): boss casts, chosen debuffs, avoidable hits, adds, Abyssal Grasp healing, damage, healing, deaths
+  Kith'ix (any difficulty): boss casts, chosen debuffs, avoidable hits, adds, Abyssal Grasp healing, dispels, deaths
               -> .../kithix/<log name>.json, listed in nights.json there
   Nek'zali, Entombed Sentinels, Vashnik, The Lost Explorers, The Coiled Altar, Ula'tek (FAIL_BOSSES, any difficulty):
-              casts, kicks, chosen debuffs, avoidable and failure hits, raid-wide failure hits, adds, damage, healing,
+              casts, kicks, chosen debuffs, avoidable and failure hits, raid-wide failure hits, adds,
               dispels, deaths -> .../<boss>/<log name>.json, listed in nights.json there
 """
 import base64, codecs, csv, getpass, glob, json, os, re, select, ssl, sys, time, urllib.error, urllib.request
@@ -52,7 +52,6 @@ TELEPORT = '48020'                             # Demonic Circle: Teleport, count
 # found 2026-11-02 in Oct 22's log, ~150 each that night; before that Mythic sets showed only half their arrows)
 SSZ_AURAS = {'1285425': 'cross', '1285453': 'cross', '1297111': 'cross', '1297096': 'cross',
              '1285447': 'gust'}                # Turbulent Gusts: in the air after the launch; two players' end together = they collided
-DMG_STEP = 5                                   # seconds per damage window in each pull's timeline
 # avoidable hits (Wowhead guide + journal): tornadoes, the tank's frontal on anyone else, claw impacts, residue pools,
 # someone's Raging Crosswinds blowing up next to you (1285616; not the DoT), the Mythic charge. The page drops tanks for Ravage.
 AVOID_S = {'1287083': 'Tempest', '1277101': 'Ravage', '1305998': 'Caustic Claws', '1296667': 'Caustic Residue',
@@ -98,9 +97,9 @@ class Parser:
         clock = line.split(' ', 1)[1][:8].split('.')[0]
         self.cur = dict(n=len(self.pulls) + 1, t0=self.ts(line), clock=clock, date=line.split(' ', 1)[0],
                         diff=int(r[3]), size=int(r[4]), ended=False, kill=False, dur=0.0, lastT=0.0,
-                        track={}, specGuid={}, aura=[], boom=[], died={}, bossGuid=None, boss=[], bossHp=None, dmg={},
+                        track={}, specGuid={}, aura=[], boom=[], died={}, bossGuid=None, boss=[], bossHp=None,
                         tempest={}, tempestCasts=0, now=0.0, ports={}, surgeCasts=[], sur=[], sdeb={},
-                        heal={}, dispels=[], avoid=[], lasthit={}, hau=[], hauOpen={})
+                        dispels=[], avoid=[], lasthit={}, hau=[], hauOpen={})
         self.pulls.append(self.cur)
 
     def end(self, rest):
@@ -121,22 +120,6 @@ class Parser:
     def add_pt(arr, t, x, y):
         if arr and t - arr[-1][0] < 0.1: return
         arr.append((t, x, y))
-
-    def credit(self, c, r, val):
-        if not val > 0: return
-        try:
-            if int(r[7], 16) & 0x10: return          # only damage to non-friendly units
-        except ValueError:
-            return
-        src = r[1]
-        owner = src if src.startswith('Player-') else self.pets.get(src)
-        if not owner or not owner.startswith('Player-'): return
-        d = c['dmg'].setdefault(owner, {'all': 0.0, 'boss': 0.0, 'b': []})
-        d['all'] += val
-        i = int(c['now'] // DMG_STEP)                # damage per DMG_STEP-second window, for the timeline graph
-        if i >= len(d['b']): d['b'].extend([0.0] * (i + 1 - len(d['b'])))
-        d['b'][i] += val
-        if BOSS_NPC in r[5]: d['boss'] += val
 
     @staticmethod
     def tempest(c, g, amount, direct, t):
@@ -194,14 +177,7 @@ class Parser:
                 c['aura'].append((t, ev[11:], r[9], r[5]))
                 self.names[r[5]] = r[6].split('-')[0]
             return
-        if ev == 'SPELL_ABSORBED':           # shields: healing credited to whoever cast the shield
-            r = self.split(rest)
-            a = 9 if (r[9].startswith('Player-') or r[9].startswith('Creature-') or r[9].startswith('Pet-')) else 12
-            try:
-                o = r[a] if r[a].startswith('Player-') else self.pets.get(r[a]); val = float(r[a + 7])
-                if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
-            except (ValueError, IndexError): pass
-            return
+        if ev == 'SPELL_ABSORBED': return   # shields (healing done isn't recorded)
         if ev.startswith('SPELL_AURA') or ev in ('SWING_DAMAGE_LANDED', 'SPELL_CAST_START'): return
         r = self.split(rest)
 
@@ -244,12 +220,7 @@ class Parser:
                         if mx > 0: c['bossHp'] = (hp, mx)
                     except ValueError:
                         pass
-        if ev in ('SPELL_HEAL', 'SPELL_PERIODIC_HEAL'):
-            o = r[1] if r[1].startswith('Player-') else self.pets.get(r[1])
-            try: val = float(r[k + 19]) - max(float(r[k + 21]), 0)
-            except (ValueError, IndexError): val = 0.0
-            if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
-            return
+        if ev in ('SPELL_HEAL', 'SPELL_PERIODIC_HEAL'): return   # healing done isn't recorded (its position is, above)
         enemy_hit = r[5].startswith('Player-') and not r[1].startswith('Player-') and r[1] not in self.pets
         if ev in ('SPELL_DAMAGE', 'SPELL_PERIODIC_DAMAGE', 'RANGE_DAMAGE', 'SWING_DAMAGE'):
             if ev == 'SPELL_DAMAGE' and r[9] == BOOM and r[5].startswith('Player-') and x is not None:
@@ -261,14 +232,11 @@ class Parser:
             if enemy_hit:
                 c['lasthit'][r[5]] = (t, 'Melee' if swing else r[10])
                 if not swing and r[9] in AVOID_S: c['avoid'].append((t, r[5], AVOID_S[r[9]], amt - max(over, 0) + max(ab, 0)))
-            self.credit(c, r, amt - max(over, 0) + max(ab, 0))
             if r[9] == TEMPEST and r[5].startswith('Player-'):
                 self.tempest(c, r[5], amt - max(over, 0) + max(ab, 0), ev == 'SPELL_DAMAGE', t)
         elif ev.endswith('_MISSED'):
             m = 9 if swing else 12
             if len(r) > m + 2 and r[m] == 'ABSORB':
-                try: self.credit(c, r, float(r[m + 2]))
-                except ValueError: pass
                 if enemy_hit and not swing and r[9] in AVOID_S:      # fully soaked by a shield: still an avoidable hit
                     try: c['avoid'].append((t, r[5], AVOID_S[r[9]], float(r[m + 2])))
                     except ValueError: pass
@@ -400,8 +368,6 @@ class Parser:
             pulls.append({'n': len(pulls) + 1, 'clock': p['clock'], 'date': p['date'], 'diff': p['diff'],
                           'dur': round(p['dur'] if p['ended'] else p['lastT'], 1), 'kill': p['kill'], 'live': not p['ended'],
                           'hp': (p['bossHp'][0] / p['bossHp'][1]) if p['bossHp'] else None, 'casts': out,
-                          'dmg': {nm(g): {'all': round(d['all']), 'boss': round(d['boss']), 'b': [round(v) for v in d['b']]} for g, d in p['dmg'].items()},
-                          'dmgStep': DMG_STEP,
                           'tempest': {nm(g): {'hits': d['hits'], 'dmg': round(d['dmg']), 't': d['t']} for g, d in p['tempest'].items()},
                           'tempestCasts': p['tempestCasts'],
                           'ports': {nm(g): n for g, n in p['ports'].items()},
@@ -412,7 +378,6 @@ class Parser:
                                    self.pos_at(p['track'].get(g, []), on),
                                    self.pos_at(p['track'].get(g, []), off) if off is not None else None]
                                   for k, g, on, off, sid in p['hau']],
-                          'heal': {nm(g): round(v) for g, v in p['heal'].items()},
                           'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],
                           'avoid': [[round(t, 2), nm(g), s, round(v)] for t, g, s, v in p['avoid']],
                           'deaths': [[round(t, 2), nm(g), (lambda h: h[1] if h and t - h[0] <= 5 else None)(p['lasthit'].get(g)), None]
@@ -425,7 +390,7 @@ class FangsParser:
     """Mythic The Twin Fangs (Vexhul and Ithraz). Any boss encounter with those NPCs in it is kept; everything the
     Twin Fangs page needs is recorded: positions, Eternal Venom stacks and what caused them, Caustic Globules
     (Caustic Deluge sets, soakers, CC, where they ruptured), Coiling Ichor drops, Visceral Burst kicks,
-    Ravenous Feast / Tainted Blood hits, damage, healing and deaths."""
+    Ravenous Feast / Tainted Blood hits, who was in the pull (did damage or healing) and deaths."""
     BOSSES = {'257361': 'Vexhul', '257368': 'Ithraz'}
     # IDs as the combat log records them (several differ from the Encounter Journal's)
     VENOM, DELUGE = '1290336', '1289192'
@@ -512,7 +477,7 @@ class FangsParser:
         when = l.split(' ', 1); self.tz = log_tz(l)
         self.cur = dict(enc=r[1], encName=r[2], t0=Parser.ts(l), clock=when[1][:8].split('.')[0], date=when[0], diff=int(r[3]),
                         twin='twin fangs' in r[2].lower(), dur=0.0, kill=False, ended=False, lastT=0.0,
-                        track={}, ctrack={}, specGuid={}, died=[], dmg={}, heal={}, hp={},
+                        track={}, ctrack={}, specGuid={}, died=[], who=set(), hp={},
                         hits={}, stacks={}, venom=[], deluges=[], rouses=[], glob={}, soaks=[], bursts=[], cc=[], bulwark=set(),
                         ichor={}, ichorOut=[], ichorHits=[], ownGore={}, spitOff=[], spitHits=[], casts=[], open={}, feasts=[], feastHits=[], tainted=[], dispels=[], avoid=[])
 
@@ -642,7 +607,7 @@ class FangsParser:
                 cast['kick'] = {'g': o, 'name': r[2].split('-')[0], 'pet': not src.startswith('Player-'), 'spell': r[10], 'd': t - cast['t']}
                 cast['res'] = 'kicked'
             return
-        # ---- damage and healing
+        # ---- damage taken; damage and healing done only say who was in the pull
         if ev.endswith('_DAMAGE') or ev.endswith('_MISSED'):
             if dst.startswith('Player-') and not src.startswith('Player-'):
                 c['hits'].setdefault(dst, []).append((t, sid, 'Melee' if swing else r[10]))
@@ -673,19 +638,19 @@ class FangsParser:
                 try: hostile_dst = not (int(r[7], 16) & 0x10)
                 except ValueError: hostile_dst = False
                 o = self.owner(src)
-                if hostile_dst and o: c['dmg'][o] = c['dmg'].get(o, 0) + val
+                if hostile_dst and o: c['who'].add(o)
             return
         if ev in ('SPELL_HEAL', 'SPELL_PERIODIC_HEAL'):
             try: val = float(r[k + 19]) - max(float(r[k + 21]), 0)
             except (ValueError, IndexError): val = 0.0
             o = self.owner(src)
-            if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
+            if o and val > 0: c['who'].add(o)
             return
-        if ev == 'SPELL_ABSORBED':           # shields: credited to whoever cast the shield
+        if ev == 'SPELL_ABSORBED':           # shields: whoever cast the shield
             a = 9 if (r[9].startswith('Player-') or r[9].startswith('Creature-') or r[9].startswith('Pet-')) else 12
             try:
                 o = self.owner(r[a]); val = float(r[a + 7])
-                if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
+                if o and val > 0: c['who'].add(o)
             except (ValueError, IndexError): pass
 
     def build(self, log_name):
@@ -826,7 +791,7 @@ class FangsParser:
                         'venom': venom, 'stacks': stacks_max, 'globules': globules, 'soaks': soaks, 'ichor': ichor, 'ichorHits': ihits, 'brood': brood, 'feasts': feasts,
                         'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],
                         'avoid': [[round(t, 2), nm(g), s, round(v)] for t, g, s, v in avoid],
-                        'dmg': {nm(g): round(v) for g, v in p['dmg'].items()}, 'heal': {nm(g): round(v) for g, v in p['heal'].items()}})
+                        'who': sorted(nm(g) for g in p['who'])})
         return {'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'tz': self.tz, 'pulls': out, 'specs': dict(self.specs)}
 
 
@@ -835,7 +800,7 @@ class KithixParser:
     ID: the Encounter Journal's IDs often differ from the log's, and each difficulty can use its own ID. The page does
     the scoring; this keeps the raw events it needs: boss casts, chosen debuffs (on/off and top stack), avoidable and
     tracked hits (with where the player stood), add deaths, Gut Reaction / Dark Frenzy on adds, healing into Abyssal Grasp,
-    damage, healing and deaths. Every hostile spell seen is also listed per pull ('seen'), to check the names against real logs.
+    dispels and deaths. Every hostile spell seen is also listed per pull ('seen'), to check the names against real logs.
     Checked against 32 Heroic pulls (Oct 2026): the log uses the journal's names. Fixate never shows in the log, so which
     player a Bomber Beetle chased isn't known; Gut Reaction (on the beetle from spawn, 30 s) ends early when it touches someone."""
     ENC, BOSS, BEETLE = '3513', '-267861-', '-268194-'   # Kith'ix, and the Bomber Beetle's creature id
@@ -891,7 +856,7 @@ class KithixParser:
             when = l.split(' ', 1); self.tz = log_tz(l)
             self.cur = dict(enc=r[1], t0=Parser.ts(l), clock=when[1][:8].split('.')[0], date=when[0], diff=int(r[3]), size=int(r[4]),
                             dur=0.0, kill=False, ended=False, lastT=0.0, hp=None, track={}, specGuid={}, died=[], npcDied=[],
-                            dmg={}, heal={}, lasthit={}, casts={}, auras={}, open={}, hits=[], npc=[], npcOpen={}, grasp={}, seen={},
+                            lasthit={}, casts={}, auras={}, open={}, hits=[], npc=[], npcOpen={}, grasp={}, seen={},
                             juice=[], bpos={}, hatched=[], dispels=[])
             return
         if c is None: return
@@ -951,6 +916,11 @@ class KithixParser:
         # ---- an egg that finished hatching (killing it in time stops the cast), and who dispelled each Overwhelming Fear
         if sname == 'Hatch' and ev == 'SPELL_CAST_SUCCESS':
             c['hatched'].append(t); return
+        # ---- things that appear on the ground (cfg drops): an NPC's own cast, logged with where it stands: [time, name, [x, y]]
+        if ev == 'SPELL_CAST_SUCCESS' and hostile_src and sname in self.cfg.get('drops', ()) and len(r) > k + 15 and r[k] == src:
+            try: c['drops'].append((t, sname, [round(float(r[k + 14]), 2), round(float(r[k + 15]), 2)]))
+            except ValueError: pass
+            return
         if ev == 'SPELL_DISPEL' and len(r) > 13 and dst.startswith('Player-'):   # a player cleansing a debuff off a player
             o = self.owner(src) or (src if src.startswith('Player-') else None)
             if o: c['dispels'].append((t, o, dst, r[13].strip('"')))
@@ -991,37 +961,20 @@ class KithixParser:
             elif ev == 'SPELL_AURA_REMOVED' and key in c['open']:
                 self.shut(c, key, t)
             return
-        # ---- hits on players, and damage / healing done
+        # ---- hits on players
         if ev.endswith('_DAMAGE') or ev.endswith('_MISSED'):
             amt = 0.0
             if ev.endswith('_DAMAGE'):
                 try: amt = float(r[k + 19]) - max(float(r[k + 21]), 0) + max(float(r[k + 25]), 0)
                 except (ValueError, IndexError): amt = 0.0
-            elif len(r) > k + 2 and r[k] == 'ABSORB':      # fully soaked by a shield: still damage taken (or done)
+            elif len(r) > k + 2 and r[k] == 'ABSORB':      # fully soaked by a shield: still damage taken
                 try: amt = float(r[k + 2])
                 except ValueError: amt = 0.0
             if dst.startswith('Player-') and hostile_src:
                 c['lasthit'][dst] = (t, sname)
                 if sname in self.HITS:
                     c['hits'].append((t, dst, sname, amt, Parser.pos_at(c['track'].get(dst, []), t)))
-            elif amt > 0 and not dst.startswith('Player-'):
-                try: hostile_dst = not (int(r[7], 16) & 0x10)
-                except ValueError: hostile_dst = False
-                o = self.owner(src)
-                if hostile_dst and o: c['dmg'][o] = c['dmg'].get(o, 0) + amt
             return
-        if ev in ('SPELL_HEAL', 'SPELL_PERIODIC_HEAL'):
-            try: val = float(r[k + 19]) - max(float(r[k + 21]), 0)
-            except (ValueError, IndexError): val = 0.0
-            o = self.owner(src)
-            if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
-            return
-        if ev == 'SPELL_ABSORBED':           # shields: credited to whoever cast the shield
-            a = 9 if (r[9].startswith('Player-') or r[9].startswith('Creature-') or r[9].startswith('Pet-')) else 12
-            try:
-                o = self.owner(r[a]); val = float(r[a + 7])
-                if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
-            except (ValueError, IndexError): pass
 
     def beetles(self, p, nm):
         """Each Bomber Beetle: [spawn, end, outcome, stack, [x, y], nearest player]. Gut Reaction is on it from spawn (30 s);
@@ -1093,8 +1046,7 @@ class KithixParser:
                         'hatched': [round(t, 2) for t in p['hatched']],
                         'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],   # [time, dispeller, target, debuff]
                         'grasp': {nm(g): round(v) for g, v in p['grasp'].items()},
-                        'deaths': deaths, 'seen': {s: v for s, v in p['seen'].items()},
-                        'dmg': {nm(g): round(v) for g, v in p['dmg'].items()}, 'heal': {nm(g): round(v) for g, v in p['heal'].items()}})
+                        'deaths': deaths, 'seen': {s: v for s, v in p['seen'].items()}})
         return {'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'tz': self.tz, 'pulls': out, 'specs': dict(self.specs)}
 
 
@@ -1107,6 +1059,7 @@ class KithixParser:
 #   hits:   damage to players kept one by one, with where the player stood
 #   pulses: raid-wide hits kept as one line per hit (time, players hit, damage); 'aura:Name' = a debuff going out
 #   adds:   NPCs whose spawns and deaths (with where they died) are kept
+#   drops:  (optional) spells an NPC casts where it appears (a puddle's stalker): kept with that spot
 FAIL_BOSSES = [
     dict(slug='nekzali', name="Nek'zali", enc='3470', boss={'259927': "Nek'zali"},
          casts={'Invoke', 'Soulcoil Ignition', 'Uncoiled Rage', 'Ritual of Awakening', 'Hungering Pyre', 'Essence Rend',
@@ -1152,7 +1105,8 @@ FAIL_BOSSES = [
                 'Soul Sever', 'Blighted Sever', 'Venomfang'},
          kicks={'Wail of Terror', 'Eternal Nightfall'},
          auras={'Dreadmarch', 'Gravebound', 'Gloombomb', 'Volatile Venom', 'Sever', 'Soul Sever', 'Blighted Sever', '#1283485',
-                '#1307425', '#1299266', '#1307652', 'Venomfang', 'Wail of Terror', 'Venom Rupture'},
+                '#1307425', '#1299266', '#1307652', 'Venomfang', 'Wail of Terror', 'Venom Rupture', 'Virulent Mutation'},
+         drops={'Coalesced Venom', 'Virulent Mutation'},   # the globule's stalker casts it where it appears (exact spot)
          npc={'Consumed by Resentment', 'Veil of Twilight', 'Soulbinding', 'Soul Sever', 'Blighted Sever'},   # Severs: on the ghosts
          fixate={'Unnerving Fixation'},   # which Manifestation of Dread chases which player
          hits={'Axegrinder', 'Noxious Ground', 'Defiled Ground', "Widow's Kiss", "Death's Embrace", 'Gloombomb', 'Volatile Venom',
@@ -1177,8 +1131,8 @@ FAIL_BOSSES = [
 class FailParser:
     """One boss from FAIL_BOSSES, any difficulty: the raw events its page scores mechanic by mechanic (casts and their
     targets, kicks, debuffs with stacks and where they went on and off, hits with positions, raid-wide hits, NPC auras,
-    add spawns and deaths, the bosses' positions), plus the standard ones every page has (damage, healing, dispels,
-    deaths). Every hostile spell seen is also listed per pull ('seen'), to check the names against real logs."""
+    add spawns and deaths, the bosses' positions), plus dispels and
+    deaths. Every hostile spell seen is also listed per pull ('seen'), to check the names against real logs."""
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -1233,9 +1187,9 @@ class FailParser:
             when = l.split(' ', 1); self.tz = log_tz(l)
             self.cur = dict(enc=r[1], t0=Parser.ts(l), clock=when[1][:8].split('.')[0], date=when[0], diff=int(r[3]), size=int(r[4]),
                             dur=0.0, kill=False, ended=False, lastT=0.0, hp={}, track={}, specGuid={}, died=[], npcDied=[],
-                            dmg={}, heal={}, lasthit={}, casts={}, ctgt={}, auras={}, open={}, hits=[], npc=[], npcOpen={}, seen={},
+                            lasthit={}, casts={}, ctgt={}, auras={}, open={}, hits=[], npc=[], npcOpen={}, seen={},
                             kicks=[], kickOpen={}, pulses={}, dispels=[], npos={}, spawns=[], spawnG={}, diedG=set(), btrack={},
-                            fixate=[], fixOpen={})
+                            fixate=[], fixOpen={}, drops=[])
             return
         if c is None: return
         t = Parser.ts(l) - c['t0']; c['lastT'] = t
@@ -1292,6 +1246,11 @@ class FailParser:
                         bt = c['btrack'].setdefault(b, [])
                         if not bt or t - bt[-1][0] >= 1.0: bt.append((t, x, y))
             except (ValueError, IndexError): pass
+        # ---- things that appear on the ground (cfg drops): an NPC's own cast, logged with where it stands: [time, name, [x, y]]
+        if ev == 'SPELL_CAST_SUCCESS' and hostile_src and sname in self.cfg.get('drops', ()) and len(r) > k + 15 and r[k] == src:
+            try: c['drops'].append((t, sname, [round(float(r[k + 14]), 2), round(float(r[k + 15]), 2)]))
+            except ValueError: pass
+            return
         if ev == 'SPELL_DISPEL' and len(r) > 13 and dst.startswith('Player-'):   # a player cleansing a debuff off a player
             o = self.owner(src) or (src if src.startswith('Player-') else None)
             if o: c['dispels'].append((t, o, dst, r[13].strip('"')))
@@ -1358,13 +1317,13 @@ class FailParser:
             elif ev == 'SPELL_AURA_REMOVED' and key in c['open']:
                 self.shut(c, key, t, here())
             return
-        # ---- hits on players (kept one by one, or as raid-wide pulses), and damage / healing done
+        # ---- hits on players (kept one by one, or as raid-wide pulses)
         if ev.endswith('_DAMAGE') or ev.endswith('_MISSED'):
             amt = 0.0
             if ev.endswith('_DAMAGE'):
                 try: amt = float(r[k + 19]) - max(float(r[k + 21]), 0) + max(float(r[k + 25]), 0)
                 except (ValueError, IndexError): amt = 0.0
-            elif len(r) > k + 2 and r[k] == 'ABSORB':      # fully soaked by a shield: still damage taken (or done)
+            elif len(r) > k + 2 and r[k] == 'ABSORB':      # fully soaked by a shield: still damage taken
                 try: amt = float(r[k + 2])
                 except ValueError: amt = 0.0
             if dst.startswith('Player-') and (hostile_src or src == '0000000000000000'):
@@ -1373,28 +1332,10 @@ class FailParser:
                 if h: c['hits'].append((t, dst, h, amt, Parser.pos_at(c['track'].get(dst, []), t)))
                 pk = self.want('pulses', sname, sid)
                 if pk and 'PERIODIC' not in ev: self.pulse(c, pk, t, dst, amt)
-            elif amt > 0 and not dst.startswith('Player-'):
-                try: hostile_dst = not (int(r[7], 16) & 0x10)
-                except ValueError: hostile_dst = False
-                o = self.owner(src)
-                if hostile_dst and o: c['dmg'][o] = c['dmg'].get(o, 0) + amt
             return
-        if ev in ('SPELL_HEAL', 'SPELL_PERIODIC_HEAL'):
-            if hostile_src and ev == 'SPELL_HEAL':
-                pk = self.want('pulses', sname, sid)
-                if pk: self.pulse(c, pk, t, dst, 0.0)
-                return
-            try: val = float(r[k + 19]) - max(float(r[k + 21]), 0)
-            except (ValueError, IndexError): val = 0.0
-            o = self.owner(src)
-            if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
-            return
-        if ev == 'SPELL_ABSORBED':           # shields: credited to whoever cast the shield
-            a = 9 if (r[9].startswith('Player-') or r[9].startswith('Creature-') or r[9].startswith('Pet-')) else 12
-            try:
-                o = self.owner(r[a]); val = float(r[a + 7])
-                if o and val > 0: c['heal'][o] = c['heal'].get(o, 0) + val
-            except (ValueError, IndexError): pass
+        if ev == 'SPELL_HEAL' and hostile_src:   # an enemy's heal can be a raid-wide pulse
+            pk = self.want('pulses', sname, sid)
+            if pk: self.pulse(c, pk, t, dst, 0.0)
 
     @staticmethod
     def pulse(c, key, t, dst, amt):
@@ -1460,12 +1401,12 @@ class FailParser:
                         'pulses': {k: [[round(x[0], 2), sorted(nm(g) for g in x[1]), round(x[2])] for x in v] for k, v in p['pulses'].items()},
                         'spawns': [[round(t, 2), s, i] for t, s, i in p['spawns']],
                         'fixate': [[nm(g), round(on, 2), r2(off), i] for g, on, off, i in p['fixate']],   # [player, on, off, add's unit id]
+                        **({'drops': [[round(t, 2), s, q] for t, s, q in p['drops']]} if p['drops'] else {}),   # [time, name, [x, y]]
                         # [time it died (or was last seen), unit id, name, where, 'died' / 'gone' (never died: reached its goal or still up)]
                         'adds': [[round(t, 2), i, s, q, how] for t, i, s, q, how in adds],
                         'btrack': {b: [[round(t, 1), round(x, 1), round(y, 1)] for t, x, y in v] for b, v in p['btrack'].items()},
                         'dispels': [[round(t, 2), nm(a), nm(b), s] for t, a, b, s in p['dispels']],   # [time, dispeller, target, debuff]
-                        'deaths': deaths, 'seen': {s: v for s, v in p['seen'].items()},
-                        'dmg': {nm(g): round(v) for g, v in p['dmg'].items()}, 'heal': {nm(g): round(v) for g, v in p['heal'].items()}})
+                        'deaths': deaths, 'seen': {s: v for s, v in p['seen'].items()}})
         return {'log': log_name, 'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'tz': self.tz, 'pulls': out, 'specs': dict(self.specs)}
 
 

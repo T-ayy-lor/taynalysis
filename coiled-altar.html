@@ -15,8 +15,19 @@
 // The page is drawn by boss.js from this config (see the top of boss.js for what each part means).
 const contacts = (p, ability, gap = 2) => { const last = {}, out = [];
   hitsOf(p, ability).forEach(h => { if (last[h[1]] == null || h[0] - last[h[1]] > gap) out.push(h); last[h[1]] = h[0]; }); return out; };
-// orbs: where each carrier dropped theirs (Volatile Venom ended there), for the map
-const orbDrops = p => auras(p, 'Volatile Venom').filter(a => a[2] != null && a[6]);
+// Coalesced Venom: a carrier's Volatile Venom ending drops one where they stand; the globule's stalker logs that exact spot the
+// same moment (p.drops, from 2026-11-11 on; older nights use the carrier's last logged position). Virulent Mutation (Mythic): a
+// carried one drops a new one when it runs out. Both judged against the assigned spots (Edit assigned spots under the map)
+const DROP_OF = {cv: ['Volatile Venom', 'Coalesced Venom'], vm: ['Virulent Mutation', 'Virulent Mutation']};
+const dropsOf = (p, kind) => { const [aura, drop] = DROP_OF[kind], spots = (p.drops || []).filter(d => d[1] === drop), used = new Set();
+  const out = auras(p, aura).filter(a => a[2] != null).map(a => { const d = spots.find(d => !used.has(d) && Math.abs(d[0] - a[2]) < 0.3);
+    if (d) used.add(d); return {n: a[0], t: a[2], pos: d ? d[2] : a[6]}; }).filter(x => x.pos);
+  // Virulent Mutation: if the carried debuff is named differently in the log, its drops still show (no carrier)
+  return kind === 'vm' && !auras(p, aura).length ? spots.map(d => ({n: null, t: d[0], pos: d[2]})) : out; };
+const dropOverlay = (id, kind, diffs) => ({id, label: CFG_KINDS[kind].label, diffs, spots: kind,
+  get: p => dropsOf(p, kind).map(x => spotMark(p, kind, x.pos, x.n, x.t, `dropped ${CFG_KINDS[kind].label} here`)),
+  key: () => spotKey(kind)});
+const CFG_KINDS = {cv: {label: 'Coalesced Venom', color: '#7fd36b'}, vm: {label: 'Virulent Mutation', color: '#c77dff'}};
 const severs = p => ['Sever', 'Soul Sever', 'Blighted Sever'].flatMap(s => contacts(p, s, 8).filter(h => !isTankIn(p, h[1])).map(h => ({t: h[0], n: h[1], s})));   // the DoT ticks count once
 const fangs = p => auras(p, 'Venomfang').map(a => ({n: a[0], t: a[1], s: (a[2] != null ? a[2] : p.dur) - a[1],
   by: (p.dispels.find(d => d[2] === a[0] && d[3] === 'Venomfang' && Math.abs(d[0] - (a[2] || 0)) < 0.4) || [])[1] || null}));
@@ -49,9 +60,11 @@ const CFG = {
        {pos: x.pos, n: x.n, t: x.t, color: x.d != null && x.d > MARCH_NEAR ? '#ff5a4a' : '#d8d2cf', tip: `<b style="color:${color(x.n)}">${esc(x.n)}</b> when Dreadmarch ended${x.d != null ? `<br>${Math.round(x.d)} yd from Malacrass` : ''}`},
        x.boss && {pos: x.boss, t: x.t, mark: 'cross', color: '#b58cff', tip: '<b>Hex Lord Malacrass</b>'}].filter(Boolean)),
      key: () => `<span>${keyDot('#d8d2cf')}Possessed player, on Malacrass</span><span>${keyDot('#ff5a4a')}More than ${MARCH_NEAR} yd from him</span><span>${keyCross('#b58cff')}Malacrass</span>`},
-    {id: 'orbs', label: 'Orb drops', get: p => orbDrops(p).map(a => ({pos: a[6], n: a[0], t: a[2], color: '#7fd36b', tip: `<b style="color:${color(a[0])}">${esc(a[0])}</b> dropped an orb here`})),
-     key: () => `<span>${keyDot('#7fd36b')}Where an orb was dropped</span>`},
+    dropOverlay('orbs', 'cv'),
+    dropOverlay('vm', 'vm', '16'),
   ],
+  // assigned drop spots, placed on the map in admin mode; a drop more than `near` yards from every spot of its kind is off
+  spots: {set: 'spots', kinds: CFG_KINDS, near: 5},
   hitNames: {'#1297906': 'Gravebound ran out', '#1283594': 'Guillotine soak', '#1299296': 'Grim Guillotine soak'},
   modules: [
     {id: 'sever', title: 'Sever frontals',
@@ -92,19 +105,13 @@ const CFG = {
      all: list => ({head: [['Pulls', 'l'], "Reached Zul'jan"], rows: [[`<td class="l">${list.length}</td>`, N(list.reduce((a, p) => a + pulsesOf(p, 'Reclaim Essence').length, 0))]]}),
      note: "Intercept every Fragment of Malacrass before it reaches Zul'jan (each heals him); stagger the soaks."},
   ],
-  avoid: {names: ['Axegrinder', 'Noxious Ground', 'Defiled Ground', "Widow's Kiss", "Death's Embrace", 'Deadly Venom'],
-    short: {'Axegrinder': 'Axe', 'Noxious Ground': 'Noxious', 'Defiled Ground': 'Defiled', "Widow's Kiss": 'Kiss', "Death's Embrace": 'Embrace', 'Gloombomb': 'Bomb',
-      'Volatile Venom': 'Orb', 'Sever': 'Sever', 'Soul Sever': 'Soul Sev.', 'Blighted Sever': 'Blighted', 'Deadly Venom': 'Venom'},
-    skip: (h, p) => (['Sever', 'Soul Sever', 'Blighted Sever'].includes(h[2]) && isTankIn(p, h[1])) || (h[2] === "Widow's Kiss" && p.diff < 16) ||
-      (h[2] === 'Gloombomb' && hadAura(p, h[1], 'Gloombomb', h[0], 1)) || (h[2] === 'Volatile Venom' && hadAura(p, h[1], 'Volatile Venom', h[0], 1)),
-    note: "Damage taken from each, then how many hits (×N); shields count. Widow's Kiss doesn't count on Heroic (you stand in it there). Gloombombs and the Sever frontals are in their own tables above."},
   abilities: {'Guillotine': 1283489, 'Grim Guillotine': 1299267, 'Guillotined': 1309944, 'Execution': 1283606, 'Grim Execution': 1299301, "Widow's Kiss": 1283623,
     "Death's Embrace": 1299396, 'Reclaim Essence': 1287718, 'Fragment of Malacrass': 1287718, 'Fragments of Malacrass': 1287718, 'Wail of Terror': 1286399,
     'Eternal Nightfall': 1286918, 'Veil of Twilight': 1286912, 'Dreadmarch': 1285643, 'Manifestation of Dread': 1285911, 'Gravebound': 1286837,
     'Soul Fragments': 1286837, 'Unworthy': 1312424, 'Axegrinder': 1283832, 'Noxious Ground': 1283290, 'Defiled Ground': 1298591, 'Gloombomb': 1310882,
-    'Volatile Venom': 1282419, 'Venom Rupture': 1299838, 'Sever': 1299680, 'Soul Sever': 1286620, 'Blighted Sever': 1307279, 'Venomfang': 1282287,
+    'Volatile Venom': 1282419, 'Coalesced Venom': 1282403, 'Venom Rupture': 1299838, 'Sever': 1299680, 'Soul Sever': 1286620, 'Blighted Sever': 1307279, 'Venomfang': 1282287,
     'Spiteful Soulcoiler': 1286441, 'Unnerving Fixation': 1285911, 'Deadly Venom': 1297338},
-  how: "Built from the Encounter Journal, Method's Heroic and Mythic guides and Icy Veins, and checked against Taylor's logs (Aug-Oct 2026: 30 Heroic pulls; no Mythic pulls seen yet); not yet checked on a live raid night. The room image is from raidstrats.gg, lined up on the platform's edges, with the stairs where the raid gathers between pulls at the bottom.",
+  how: "Built from the Encounter Journal, Method's Heroic and Mythic guides and Icy Veins, and checked against Taylor's logs (Aug-Oct 2026: 30 Heroic pulls; no Mythic pulls seen yet); not yet checked on a live raid night. The room image is from raidstrats.gg, lined up on the platform's edges, with the stairs where the raid gathers between pulls at the bottom. Coalesced Venom drops are where a carrier's Volatile Venom ended (the exact spot the puddle appeared, from Nov 11 on; before that the carrier's last logged position, which can be a few yards off); Virulent Mutation drops (Mythic) are where a carried one ran out. Assigned spots are placed on the map in admin mode; each pull is judged against the spots saved before it started, and a drop more than 5 yd from every spot of its kind is off its spot.",
 };
 </script>
 <script src="boss.js"></script>

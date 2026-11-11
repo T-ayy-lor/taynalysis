@@ -263,6 +263,23 @@
     }
    },
    "updated": "2026-11-03T02:58:20+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/nekzali/WoWCombatLog-110926_202209.json",
+   "log": "WoWCombatLog-110926_202209.txt",
+   "date": "11/9/2026",
+   "diff": 15,
+   "pulls": 2,
+   "kill": true,
+   "best": 0.05,
+   "byDiff": {
+    "15": {
+     "pulls": 2,
+     "kills": 1,
+     "best": 0.05
+    }
+   },
+   "updated": "2026-11-10T02:55:59+00:00"
   }
  ]
 }

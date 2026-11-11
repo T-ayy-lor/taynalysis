@@ -175,7 +175,6 @@ h2{font-family:var(--f-display);font-weight:600;font-size:1.05rem;margin:0 0 8px
 #liveText{flex:1;min-width:220px;font-size:.88rem}
 *{scrollbar-width:none}
 *::-webkit-scrollbar{display:none;width:0;height:0}
-/* standard bottom panels, drawn by shared.js: avoidable damage by ability, meters, early deaths */
 table.st{border-collapse:collapse;width:100%;font-size:.86rem}
 table.st th,table.st td{padding:6px 0 6px 14px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;width:1%}
 table.st th:first-child,table.st td:first-child{padding-left:0;text-align:left}
@@ -188,17 +187,6 @@ table.st .sh{display:none}
 table.st.narrow .lg{display:none} table.st.narrow .sh{display:inline}
 table.st.vert{font-size:.66rem} table.st.vert th:not(:first-child),table.st.vert td:not(:first-child){padding-left:3px}
 table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;line-height:1}
-.sm{display:flex;flex-direction:column;gap:3px}
-.smr{position:relative;display:grid;grid-template-columns:1.6em minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 6px;font-size:.86rem}
-.smr .bar{position:absolute;left:0;top:2px;bottom:2px;border-radius:3px;opacity:.22;background:var(--cc)}
-.smr > *{position:relative}
-.smr .r{font:400 .76rem var(--f-mono);color:var(--muted)}
-.smr .v{font:600 .8rem var(--f-mono);white-space:nowrap} .smr .v span{color:var(--muted);font-weight:400} .smr .v.z{color:var(--muted)}
-.sm.short{max-height:12.6em;overflow-y:auto}
-.sm.short.more{-webkit-mask-image:linear-gradient(to bottom,#000 78%,transparent);mask-image:linear-gradient(to bottom,#000 78%,transparent)}
-.bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
-.bottom .stack{display:flex;flex-direction:column;gap:18px;min-width:0}
-@media (max-width:800px){.bottom{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:600px){table.st{font-size:.8rem} table.st th,table.st td{padding-left:6px} table.st th{font-size:.62rem;letter-spacing:.02em}}
 .meterhead{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;margin-bottom:6px}
 select{font:600 .84rem var(--f-body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;max-width:100%}
@@ -277,12 +265,11 @@ details.pick summary span{font-weight:400}
 .mapgrid{grid-template-columns:minmax(0,var(--mapw)) minmax(0,1fr);align-items:stretch}
 .mpanel .mapbox{width:100%;max-width:var(--mapw);margin-left:auto;margin-right:auto}
 @media (max-width:1200px),(orientation:portrait){.mapgrid{grid-template-columns:minmax(0,1fr)}.vpanel{contain:none}.vpanel .vt{flex:none;max-height:none}}
-/* panels in a row are the same height (the tallest sets it); stacked short panels stretch to line up with their neighbour */
-.grid2,.lower,.bottom,.mods{align-items:stretch}
-.bottom .stack > .panel:last-child{flex:1 1 auto}
+/* panels in a row are the same height (the tallest sets it) */
+.grid2,.lower,.mods{align-items:stretch}
 .mpanel canvas{max-width:100%}
 a.ab{color:inherit;text-decoration:underline dotted;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px;cursor:help}   /* Wowhead tooltip links */
-/* ---- no empty space in a row (Taylor 2026-10-31): one card sets the row's height (the map; Damage done) and the column
+/* ---- no empty space in a row (Taylor 2026-10-31): one card sets the row's height (the map) and the column
    beside it ends level with it; whatever doesn't fit scrolls inside its card (.scrollfit, fading at the bottom when there's more) ---- */
 .vcol{display:flex;flex-direction:column;gap:18px;min-width:0;contain:size}
 .vcol > .vpanel{contain:none;flex:0 1 auto;min-height:0}
@@ -297,13 +284,8 @@ a.ab{color:inherit;text-decoration:underline dotted;text-decoration-color:color-
 @media (max-width:800px){.mods{grid-template-columns:minmax(0,1fr)}.mods .vt,.mods .booms{max-height:420px}}
 .scrollfit{overflow-y:auto;min-height:0}
 .scrollfit.more{-webkit-mask-image:linear-gradient(to bottom,#000 82%,transparent);mask-image:linear-gradient(to bottom,#000 82%,transparent)}
-.bottom .stack > .panel{flex:none}
-/* the last card adds only 300 px to the column's height, so Damage done sets the row and this card fills what's left */
-.bottom .stack > .panel:last-child{flex:1 1 0;min-height:300px;display:flex;flex-direction:column;contain:size}
-.bottom .stack > .panel:last-child > .scrollfit{flex:1 1 0}
 .lower{grid-template-columns:minmax(0,1fr)}
 @media (max-width:1200px),(orientation:portrait){.vcol{contain:none}.vcol > .panel,.vcol > #surgePanel,.vcol > #crossCard{flex:none;min-height:0}.vcol > .vpanel .vt{flex:none;max-height:420px}}
-@media (max-width:800px){.bottom .stack > .panel:last-child{contain:none;flex:none;min-height:0}.bottom .stack > .panel:last-child > .scrollfit{flex:none;max-height:420px}}
 </style>
 </head>
 <body>
@@ -468,38 +450,6 @@ a.ab{color:inherit;text-decoration:underline dotted;text-decoration-color:color-
     <p class="note" id="tmpNote">Hits counts each time Tempest landed on the player (each hit also adds a stack of its damage-over-time). Taken is all Tempest damage, hits plus ticks, including what shields absorbed.</p>
   </div>
 
-  <div class="bottom">
-    <div class="panel" id="meterPanel">
-      <div class="meterhead">
-        <h2 style="margin:0">Damage done</h2>
-        <div class="row" style="gap:8px">
-          <select id="dmgPull" aria-label="Pull to show"></select>
-          <div class="seg" role="group" aria-label="Damage view"><button type="button" id="dmgvList" aria-pressed="true">List</button><button type="button" id="dmgvGraph" aria-pressed="false">Graph</button></div>
-        </div>
-      </div>
-      <p class="note" id="meterSum"></p>
-      <div id="dmgBody" class="gbody">
-      <div id="dmgList">
-        <div class="mrow mhdr"><span>#</span><span>Player</span><span></span><span>Damage</span><span>DPS</span><span>Share</span></div>
-        <div id="meter"></div>
-      </div>
-      <div id="dmgGraph" class="tg" hidden></div>
-      </div>
-      <p class="note" id="dmgNote"></p>
-    </div>
-    <div class="stack">
-      <div class="panel"><div class="meterhead"><h2 style="margin:0">Healing</h2><select id="healPull" aria-label="Pulls to show"></select></div><div id="heal"></div></div>
-      <div class="panel"><div class="meterhead"><h2 style="margin:0">Dispels</h2><select id="dispPull" aria-label="Pulls to show"></select></div><div id="disp"></div></div>
-      <div class="panel"><div class="meterhead"><h2 style="margin:0">Early deaths</h2><select id="deathPull" aria-label="Pulls to show"></select></div><div class="tw scrollfit"><table id="deaths"></table></div></div>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="meterhead"><h2 style="margin:0">Avoidable damage taken</h2><select id="avoidPull" aria-label="Pulls to show"></select></div>
-    <div class="tw"><table id="avoidT"></table></div>
-    <p class="note">Damage taken from each, then how many hits (×N); shields count. Ravage doesn't count on tanks. Raging Crosswinds: the burst when someone's winds expire next to you, not the damage-over-time.</p>
-  </div>
-
   <div class="lower">
     <div class="panel how">
       <h2>How this was measured</h2>
@@ -612,7 +562,7 @@ function isDark(){ const t=document.documentElement.dataset.theme; if(t) return 
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 // ---- state
-const st = {k:20, R:8, frame:'room', healers:false, view:'avg', assign:true, rot:0, mir:false, sel:null, on:new Set(CASTS.filter(c=>c.side===1).map(c=>c.id)), preset:'first', sort:'drift', asc:true, dmgPull:DEF_SCOPE, dmgTarget:'all', tmpPull:DEF_SCOPE, mech:'vir', mapPull:DEF_SCOPE, sR:7, sBad:false, xset:'all'};
+const st = {k:20, R:8, frame:'room', healers:false, view:'avg', assign:true, rot:0, mir:false, sel:null, on:new Set(CASTS.filter(c=>c.side===1).map(c=>c.id)), preset:'first', sort:'drift', asc:true, tmpPull:DEF_SCOPE, mech:'vir', mapPull:DEF_SCOPE, sR:7, sBad:false, xset:'all'};
 try { const s = JSON.parse(localStorage.getItem('vir-ui')||'{}'); if (s.rot!=null) st.rot=s.rot; if (s.mir!=null) st.mir=s.mir; if (s.R) st.R=s.R; } catch(e){}
 function save(){ try{ localStorage.setItem('vir-ui', JSON.stringify({rot:st.rot,mir:st.mir,R:st.R})); }catch(e){} }
 
@@ -1160,7 +1110,7 @@ function renderDiff(){
 }
 initDeathCut(() => applyView());
 $('diffSeg').querySelectorAll('button').forEach(b => b.onclick = () => {
-  SITE.diff = +b.dataset.d; st.preset = st.preset || 'first'; st.dmgPull = st.tmpPull = st.mapPull = DEF_SCOPE; st.sel = null; applyView(); });
+  SITE.diff = +b.dataset.d; st.preset = st.preset || 'first'; st.tmpPull = st.mapPull = DEF_SCOPE; st.sel = null; applyView(); });
 function applyView(){
   const D = viewData(); SITE.data = D;
   DATA = D || {step:0.25, pulls:[]};
@@ -1169,32 +1119,31 @@ function applyView(){
   if (st.preset) st.on = presetSet(st.preset);
   else st.on = new Set([...st.on].filter(id => CASTS.some(c => c.id === id)));
   if (!st.on.size){ st.preset = CASTS.some(c => c.side === 1) ? 'first' : 'all'; st.on = presetSet(st.preset); }
-  boomList(); render(); renderMeter(); renderStd(); setHeader(); renderNightSelect(); renderDiff(); renderTimeline(); setLiveStatus();
+  boomList(); render(); renderTempest(); setHeader(); renderNightSelect(); renderDiff(); renderTimeline(); setLiveStatus();
   // admin: ⚑ beside each pull dropdown while it has one pull picked (values are pull numbers here)
-  flagIcons('sszorak', ['mapPull', 'dmgPull', 'tmpPull', 'healPull', 'dispPull', 'deathPull', 'avoidPull'].map(id => $(id)),
+  flagIcons('sszorak', ['mapPull', 'tmpPull'].map(id => $(id)),
     el => { const p = DATA.pulls.find(p => String(p.n) === el.value); return p ? p.fk : null; }, applyView);
 }
 // ---- timeline: the chosen night's row (every night's with All nights), drawn by drawTimeline in shared.js ----
 function renderTimeline(){
   const ns = nights(), shown = SITE.view === 'all' ? ns : ns.filter(n => n.key === (SITE.view || (ns[ns.length - 1] || {}).key));
-  const selP = st.dmgPull === st.tmpPull && DATA.pulls.find(p => String(p.n) === st.dmgPull);
+  const selP = st.mapPull === st.tmpPull && DATA.pulls.find(p => String(p.n) === st.tmpPull);
   const mm = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   drawTimeline(shown.map(n => ({key: n.key, date: n.date, cur: SITE.view === n.key, logs: n.files.map(f => f.log),
     pulls: n.files.flatMap(f => { const D = SITE.files[f.file]; return D ? (D.pulls || []).filter(p => showPull(flagKey(D, p))).map(p => ({key: D.log + '#' + p.n, date: p.date, clock: p.clock, tz: D.tz,
       dur: p.dur, kill: p.kill, diff: p.diff, title: `${mm(p.dur)} · ${p.live ? 'in progress' : p.kill ? 'kill' : p.hp != null ? `wipe at ${(p.hp * 100).toFixed(1)}%` : 'wipe'}`})) : []; })
       .sort((a, b) => a.clock.localeCompare(b.clock))})), {enc: ['3420'], name: 'Sszorak', diff: SITE.diff != null ? SITE.diff : TEAM.diff, sel: selP ? selP.key : null});
-  // a click on a night opens it; a click on a pull also shows just that pull everywhere (its casts on the map, Damage and Tempest)
+  // a click on a night opens it; a click on a pull also shows just that pull everywhere (its casts on the map and Tempest)
   $('tl').querySelectorAll('.tlrow[data-n]').forEach(r => r.onclick = e => {
     const b = e.target.closest('.blk:not(.ob)');
-    if (SITE.view !== r.dataset.n){ SITE.view = r.dataset.n; st.dmgPull = st.tmpPull = st.mapPull = DEF_SCOPE; st.sel = null; }
+    if (SITE.view !== r.dataset.n){ SITE.view = r.dataset.n; st.tmpPull = st.mapPull = DEF_SCOPE; st.sel = null; }
     if (b) SITE.diff = +b.dataset.d;
     st.preset = st.preset || 'first'; applyView();
     const p = b && DATA.pulls.find(x => x.key === b.dataset.k); if (!p) return;
     const on = CASTS.filter(c => c.pull === p.n).map(c => c.id);
     if (on.length){ st.preset = null; st.on = new Set(on); }
-    st.dmgPull = st.tmpPull = st.mapPull = String(p.n); st.sel = null;
-    Object.keys(BST).forEach(k => { BST[k] = String(p.n); });
-    render(); renderMeter(); renderStd(); renderTimeline(); });
+    st.tmpPull = st.mapPull = String(p.n); st.sel = null;
+    render(); renderTempest(); renderTimeline(); });
 }
 async function fetchJSON(u){ const r = await fetch(u + '?t=' + Date.now(), {cache:'no-store'}); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
 async function checkSite(){
@@ -1222,7 +1171,7 @@ function renderNightSelect(){
   opts.push(['all', `All nights (${ns.length})`]);
   sel.innerHTML = opts.map(([v, t]) => `<option value="${v}"${v === SITE.view ? ' selected' : ''}>${esc(t)}</option>`).join('');
 }
-$('night').onchange = e => { SITE.view = e.target.value; st.preset = st.preset || 'first'; st.dmgPull = st.tmpPull = st.mapPull = DEF_SCOPE; st.sel = null; applyView(); };
+$('night').onchange = e => { SITE.view = e.target.value; st.preset = st.preset || 'first'; st.tmpPull = st.mapPull = DEF_SCOPE; st.sel = null; applyView(); };
 function setHeader(){ $('sub').textContent = ''; }   // the pull count lives on the difficulty buttons only
 function ago(ms){ const s = Math.round((Date.now() - ms) / 1000); return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`; }
 function pullLabel(p){
@@ -1243,13 +1192,9 @@ setInterval(checkSite, 5000);
 setInterval(setLiveStatus, 15000);
 let rsz; addEventListener('resize', () => { clearTimeout(rsz); rsz = setTimeout(render, 150); });   // map markers keep their on-screen size
 
-// ---- damage meter ----
-// ---- Damage done / Hit by Tempest: each has a List and a Graph view ----
-const GR = {dmg: {view: 'list', sel: [], tot: true, panel: 'meterPanel'}, tmp: {view: 'list', sel: [], tot: true, panel: 'tempestPanel'}};
+// ---- Hit by Tempest: a List and a Graph view ----
+const GR = {tmp: {view: 'list', sel: [], tot: true, panel: 'tempestPanel'}};
 const NOTES = {
-  dmg: ["Damage counts each hit plus any amount absorbed by shields, minus overkill, against enemies only. Pet and guardian damage goes to its owner. DPS divides by the pull's length.",
-        "DPS per pull for the whole raid. Hover or tap the graph to see each player's DPS in a pull. Pick names below to add their lines; click Raid total to hide or show it.",
-        "DPS through the pull in 5-second windows for the whole raid. Hover or tap the graph to see each player's DPS at that point. Pick names below to add their lines; click Raid total to hide or show it."],
   tmp: ["Hits counts each time Tempest landed on the player (each hit also adds a stack of its damage-over-time). Taken is all Tempest damage, hits plus ticks, including what shields absorbed.",
         "Hits per pull for the whole raid. Hover or tap the graph to see who was hit in a pull. Pick names below to add their lines; click Raid total to hide or show it.",
         "Running count of hits through the pull for the whole raid. Hover or tap the graph to see who had been hit by then. Pick names below to add their lines; click Raid total to hide or show it."]};
@@ -1276,28 +1221,7 @@ function showView(key, list){
 }
 function unlock(key){ $(key + 'List').hidden = false; $(key + 'Graph').hidden = true; $(key + 'Body').style.minHeight = ''; $(key + 'Note').style.minHeight = ''; $(key + 'Note').textContent = NOTES[key][0]; }
 
-// ---- standard bottom panels (shared.js) with this page's helpers; each panel has its own pull dropdown ----
-const H = {pname: n => `<span class="pn" style="--cc:${classHex(n)}">${esc(n)}</span>`, order: (a, b) => a.localeCompare(b),
-  healer: n => info(n)[2] === 'healer', people: list => [...new Set(list.flatMap(p => Object.keys(p.dmg || {})))], color: classHex,
-  // spell ids for the Wowhead tooltips on the avoidable headings (the uploader's AVOID_S, checked in the Oct 28 log)
-  spell: n => ({'Tempest': 1287083, 'Ravage': 1277101, 'Caustic Claws': 1305998, 'Caustic Residue': 1296667, 'Raging Crosswinds burst': 1285616, 'To the Slaughter': 1299592})[n]};
-// avoidable hits (uploader's AVOID_S); Ravage doesn't count on tanks
-const AVOID_ORDER = ['Tempest', 'Ravage', 'Caustic Claws', 'Caustic Residue', 'Raging Crosswinds burst', 'To the Slaughter'];
-const AVOID_SHORT = {'Tempest': 'Tempest', 'Ravage': 'Ravage', 'Caustic Claws': 'Claws', 'Caustic Residue': 'Residue', 'Raging Crosswinds burst': 'Winds', 'To the Slaughter': 'Charge'};
-const BST = {avoid: DEF_SCOPE, heal: DEF_SCOPE, disp: DEF_SCOPE, deaths: DEF_SCOPE};
-const BSEL = {avoid: 'avoidPull', heal: 'healPull', disp: 'dispPull', deaths: 'deathPull'};
-function renderStd(){
-  const pulls = (SITE.data && SITE.data.pulls) || [];
-  Object.entries(BSEL).forEach(([k, id]) => { const sel = $(id), opts = pullOpts(pulls, `All ${pulls.length} pulls`);
-    if (!opts.some(o => o[0] === BST[k])) BST[k] = 'all';
-    sel.innerHTML = opts.map(([v, tx]) => `<option value="${v}"${v === BST[k] ? ' selected' : ''}>${esc(tx)}</option>`).join(''); sel.disabled = !pulls.length; });
-  const L = k => pickPulls(pulls, BST[k]);
-  drawAvoid($('avoidT'), L('avoid').flatMap(p => (p.avoid || []).filter(h => !(h[2] === 'Ravage' && info(h[1])[2] === 'tank'))), AVOID_ORDER, AVOID_SHORT, H);
-  drawHealing($('heal'), L('heal'), H); drawDispels($('disp'), L('disp'), H); drawDeaths($('deaths'), L('deaths'), H);
-  sortStd(); syncPullSegs();
-}
-
-const pnameS = n => H.pname(n);
+const pnameS = n => `<span class="pn" style="--cc:${classHex(n)}">${esc(n)}</span>`;
 // in-game tooltips on every ability name on the page, card titles too (shared.js autoLink); ids from Taylor's logs
 const ABILITY = {'Virulence': 1297707, 'Venomous Surge': 1305959, 'Raging Crosswinds': 1285425, 'Crosswinds': 1285425,
   'Raging Crosswinds burst': 1285616, 'Turbulent Gusts': 1285447, 'Tempest': 1287083, 'Ravage': 1277101, 'Ravaged': 1299405,
@@ -1324,41 +1248,14 @@ function renderCross(){
 }
 ['xsetSeg', 'xsetSegMap'].forEach(id => $(id).addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (!b) return; st.xset = b.dataset.v === 'all' ? 'all' : +b.dataset.v; render(); }));
 $('crossT').addEventListener('click', e => { const tr = e.target.closest('tr[data-n]'); if (tr && !e.target.closest('th')) pick(tr.dataset.n); });
-Object.entries(BSEL).forEach(([k, id]) => { $(id).onchange = e => { BST[k] = e.target.value; renderStd(); }; });
 // ---- a Latest / Overall switch beside each pull dropdown, like the other pages ----
-['mapPull', 'dmgPull', 'tmpPull', ...Object.values(BSEL)].forEach(id => { const sel = $(id), ctl = document.createElement('div'), seg = document.createElement('div');
+['mapPull', 'tmpPull'].forEach(id => { const sel = $(id), ctl = document.createElement('div'), seg = document.createElement('div');
   ctl.className = 'ctl'; seg.className = 'seg mini'; seg.setAttribute('role', 'group'); seg.dataset.for = id;
   seg.innerHTML = '<button type="button" data-v="latest">Latest</button><button type="button" data-v="all">Overall</button>';
   seg.querySelectorAll('button').forEach(b => b.onclick = () => { sel.value = b.dataset.v; sel.dispatchEvent(new Event('change')); });
   sel.parentNode.insertBefore(ctl, sel); ctl.append(seg, sel); });
 function syncPullSegs(){ document.querySelectorAll('.seg.mini[data-for]').forEach(s => { const v = $(s.dataset.for).value; s.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v))); }); }
 
-function renderMeter(){
-  const D = SITE.data, box = $('meter'), sel = $('dmgPull');
-  if (!D || !D.pulls.length){
-    sel.innerHTML = ''; sel.disabled = true; $('meterSum').textContent = ''; unlock('dmg');
-    box.innerHTML = '';
-    renderTempest();
-    return;
-  }
-  sel.disabled = false;
-  const pulls = D.pulls;
-  const opts = pullOpts(pulls, `All ${pulls.length} pulls`);
-  if (!opts.some(o => o[0] === st.dmgPull)) st.dmgPull = 'all';
-  sel.innerHTML = opts.map(([v, t]) => `<option value="${v}"${v === st.dmgPull ? ' selected' : ''}>${esc(t)}</option>`).join('');
-  const list = pickPulls(pulls, st.dmgPull);
-  const dur = list.reduce((s, p) => s + p.dur, 0), tot = {};
-  list.forEach(p => Object.entries(p.dmg || {}).forEach(([n, d]) => { tot[n] = (tot[n] || 0) + d.all; }));
-  const rows = Object.entries(tot).filter(r => r[1] > 0).sort((a, b) => b[1] - a[1]);
-  const max = rows.length ? rows[0][1] : 1, sum = rows.reduce((s, r) => s + r[1], 0);
-  if (!list.some(p => p.dmg && Object.keys(p.dmg).length)){ unlock('dmg'); box.innerHTML = '<p class="empty">No damage data for these pulls.</p>'; $('meterSum').textContent = list.length === 1 ? pullLabel(list[0]) : `${list.length} pulls`; renderTempest(); return; }
-  const which = showView('dmg', list);
-  lockHeight('dmg', new Set(pulls.flatMap(p => Object.entries(p.dmg || {}).filter(([k, d]) => d.all > 0).map(([k]) => k))).size, 'mrow', which);
-  box.innerHTML = rows.map(([n, v], i) => `<div class="mrow"><span class="mrank">${i + 1}</span><span class="mname" style="--cc:${classHex(n)}"><span class="pn"${nameTip(n)}>${esc(n)}</span></span><span class="mbar"><i style="width:${(v / max * 100).toFixed(1)}%;background:${classHex(n)}"></i></span><span class="mval">${fmt(v)}</span><span class="mdps">${dur > 0 ? fmt(v / dur) : '–'}</span><span class="mpct">${(v / sum * 100).toFixed(1)}%</span></div>`).join('') || '<p class="empty">No damage recorded yet.</p>';
-  $('meterSum').textContent = `${list.length === 1 ? pullLabel(list[0]) : `${list.length} pulls, ${Math.round(dur / 60)} min total`} · raid ${fmt(dur > 0 ? sum / dur : 0)} DPS · ${fmt(sum)} damage`;
-  if (GR.dmg.view === 'graph') damageGraph(list, rows, dur, sum);
-  renderTempest();
-}
 function renderTempest(){
   const box = $('tempest'), sel = $('tmpPull'), pulls = (SITE.data && SITE.data.pulls) || [];
   if (pulls.length){
@@ -1391,7 +1288,6 @@ function lineColor(n){ // keep very light class colors (Priest, Rogue) readable 
 }
 function yTicks(max){ const raw = Math.max(1, max) / 4, p = Math.pow(10, Math.floor(Math.log10(raw))); let step = [1, 2, 5, 10].map(m => m * p).find(v => v >= raw); step = Math.max(1, Math.round(step)); return {step, top: Math.max(step, Math.ceil(Math.max(1, max) / step) * step)}; }
 const mss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-const fmtAx = v => v >= 1e6 ? +(v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? +(v / 1e3).toFixed(1) + 'K' : String(v);
 function chart(W, H, g, series, yf){
   yf = yf || String;
   const ymax = Math.max(1, ...series.flatMap(s => s.pts.map(p => p[1]))), {step, top} = yTicks(ymax), yt = [];
@@ -1470,27 +1366,8 @@ function tempestGraph(list, rows){
   }
   drawGraph('tmp', c);
 }
-function damageGraph(list, rows, dur, sum){
-  const names = rows.map(r => r[0]);
-  const c = {rows: rows.map(([n, v]) => [n, fmt(dur > 0 ? v / dur : 0)]), totLabel: fmt(dur > 0 ? sum / dur : 0) + ' DPS', yf: fmtAx, vf: fmt};
-  if (list.length > 1){
-    const dps = (p, n) => p.dur > 0 && p.dmg && p.dmg[n] ? p.dmg[n].all / p.dur : 0, tot = p => p.dur > 0 ? Object.values(p.dmg || {}).reduce((a, d) => a + d.all, 0) / p.dur : 0;
-    Object.assign(c, {g: W => pullAxis(list, W), tot: list.map(p => [p.n, tot(p)]), per: n => list.map(p => [p.n, dps(p, n)]),
-      at: x => { const p = nearestPull(list, x); return {x: p.n, head: `Pull ${p.n} · ${fmt(tot(p))} DPS`, none: 'No damage', rows: names.map(n => [n, dps(p, n)])}; }});
-  } else {
-    const p = list[0], pd = Math.max(1, p.dur || 0), s = p.dmgStep || 5, D = p.dmg || {};
-    if (names.length && !names.some(n => Array.isArray(D[n] && D[n].b))){ $('dmgGraph').innerHTML = '<p class="empty">This pull was uploaded before damage was recorded over time, so it has no timeline. Pick All pulls for the per-pull graph.</p>'; return; }
-    const nb = Math.max(1, Math.ceil(pd / s)), len = i => Math.max(0.5, Math.min(s, pd - i * s)), mid = i => Math.min(pd, i * s + len(i) / 2);
-    const win = (n, i) => ((D[n] && D[n].b && D[n].b[i]) || 0) / len(i), totWin = i => names.reduce((a, n) => a + win(n, i), 0);
-    const idx = [...Array(nb).keys()];
-    Object.assign(c, {g: W => timeAxis(pd, W), tot: idx.map(i => [mid(i), totWin(i)]), per: n => idx.map(i => [mid(i), win(n, i)]),
-      at: x => { const i = Math.max(0, Math.min(nb - 1, Math.floor(x / s))); return {x: mid(i), head: `${mss(i * s)}–${mss(Math.min(pd, (i + 1) * s))} · ${fmt(totWin(i))} DPS`, none: 'No damage', rows: names.map(n => [n, win(n, i)])}; }});
-  }
-  drawGraph('dmg', c);
-}
-
-const rerender = key => key === 'dmg' ? renderMeter() : renderTempest();
-['dmg', 'tmp'].forEach(key => {
+const rerender = () => renderTempest();
+['tmp'].forEach(key => {
   const box = $(key + 'Graph');
   box.addEventListener('pointermove', e => gMove(key, e));
   box.addEventListener('pointerdown', e => gMove(key, e));
@@ -1503,8 +1380,7 @@ const rerender = key => key === 'dmg' ? renderMeter() : renderTempest();
   $(key + 'vList').onclick = () => vset('list'); $(key + 'vGraph').onclick = () => vset('graph');
   new ResizeObserver(() => { const G = GR[key], w = $(G.panel).clientWidth; if (G.view === 'graph' && Math.abs(w - (G.w || 0)) > 8) rerender(key); }).observe($(GR[key].panel));
 });
-new MutationObserver(() => { if (GR.dmg.view === 'graph') renderMeter(); else if (GR.tmp.view === 'graph') renderTempest(); }).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
-$('dmgPull').onchange = e => { st.dmgPull = e.target.value; renderMeter(); renderTimeline(); syncPullSegs(); };
+new MutationObserver(() => { if (GR.tmp.view === 'graph') renderTempest(); }).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
 $('tmpPull').onchange = e => { st.tmpPull = e.target.value; renderTempest(); renderTimeline(); syncPullSegs(); };
 
 applyView(); checkSite();

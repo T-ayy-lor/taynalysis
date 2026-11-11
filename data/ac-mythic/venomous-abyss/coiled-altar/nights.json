@@ -230,6 +230,23 @@
     }
    },
    "updated": "2026-11-03T02:58:20+00:00"
+  },
+  {
+   "file": "data/ac-mythic/venomous-abyss/coiled-altar/WoWCombatLog-110926_202209.json",
+   "log": "WoWCombatLog-110926_202209.txt",
+   "date": "11/9/2026",
+   "diff": 15,
+   "pulls": 1,
+   "kill": true,
+   "best": null,
+   "byDiff": {
+    "15": {
+     "pulls": 1,
+     "kills": 1,
+     "best": null
+    }
+   },
+   "updated": "2026-11-10T02:55:59+00:00"
   }
  ]
 }

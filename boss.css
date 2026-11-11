@@ -144,6 +144,13 @@ th.so.desc::after{content:'▼';font-size:.7em;margin-left:3px}
 .mapbox{position:relative;width:100%;aspect-ratio:1/1;border-radius:8px;overflow:hidden;background:#141a3a}
 #mapsvg,#mapsvg svg{display:block;width:100%;height:100%}
 .mapbox [data-tip]{cursor:pointer}
+/* Edit assigned spots (admin): click the map to add, drag to move */
+#mapsvg svg.editing{touch-action:none;cursor:crosshair}
+#mapsvg g.spot.ed{cursor:grab} #mapsvg g.spot.ed:active{cursor:grabbing}
+.spoted .sphelp{font-size:.82rem;color:var(--muted);margin:8px 0}
+.spoted .spsel:empty{display:none}
+.spoted .spsel{margin-bottom:8px}
+.spoted .spsel label{display:inline-flex;gap:6px;align-items:center;font-size:.85rem}
 .tip{position:absolute;z-index:2;pointer-events:none;max-width:240px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 9px;font-size:.82rem;line-height:1.35;box-shadow:0 4px 14px rgba(0,0,0,.35)}
 .tip b{font-weight:600}
 .key{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:.8rem;color:var(--muted);margin-top:10px;align-items:center}
@@ -166,51 +173,14 @@ td.s2{color:var(--warn);font-weight:600} td.s3{color:var(--crit);font-weight:600
 .seg.mini button{padding:4px 9px;font-size:.8rem}
 
 
-/* standard bottom panels, drawn by shared.js: avoidable damage by ability, meters, early deaths */
-table.st{border-collapse:collapse;width:100%;font-size:.86rem}
-table.st th,table.st td{padding:6px 0 6px 14px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;width:1%}
-table.st th:first-child,table.st td:first-child{padding-left:0;text-align:left}
-table.st th.l,table.st td.l{text-align:left} table.st .w{width:auto}
-table.st th{font-family:var(--f-display);font-weight:600;font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);vertical-align:bottom;white-space:normal}
-table.st th.so{cursor:pointer;user-select:none} table.st th.so:hover{color:var(--accent)}
-table.st th.asc::after{content:'▲';font-size:.7em;margin-left:3px} table.st th.desc::after{content:'▼';font-size:.7em;margin-left:3px}
-table.st td.n{font-family:var(--f-mono)} table.st td.l{text-align:left} table.st td.z{color:var(--muted)} table.st td.bad{color:var(--crit);font-weight:600}
-table.st .sh{display:none}
-table.st.narrow .lg{display:none} table.st.narrow .sh{display:inline}
-table.st.vert{font-size:.66rem} table.st.vert th:not(:first-child),table.st.vert td:not(:first-child){padding-left:3px}
-table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;line-height:1}
-.sm{display:flex;flex-direction:column;gap:3px}
-.smr{position:relative;display:grid;grid-template-columns:1.6em minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 6px;font-size:.86rem}
-.smr .bar{position:absolute;left:0;top:2px;bottom:2px;border-radius:3px;opacity:.22;background:var(--cc)}
-.smr > *{position:relative}
-.smr .r{font:400 .76rem var(--f-mono);color:var(--muted)}
-.smr .v{font:600 .8rem var(--f-mono);white-space:nowrap} .smr .v span{color:var(--muted);font-weight:400} .smr .v.z{color:var(--muted)}
-.sm.short{max-height:12.6em;overflow-y:auto}
-.sm.short.more{-webkit-mask-image:linear-gradient(to bottom,#000 78%,transparent);mask-image:linear-gradient(to bottom,#000 78%,transparent)}
-.bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
-.bottom .stack{display:flex;flex-direction:column;gap:18px;min-width:0}
-@media (max-width:800px){.bottom{grid-template-columns:minmax(0,1fr)}}
-@media (max-width:600px){table.st{font-size:.8rem} table.st th,table.st td{padding-left:6px} table.st th{font-size:.62rem;letter-spacing:.02em}}
-
-/* bar meters */
-.mrow .v.z{color:var(--muted)}
-.meter{display:flex;flex-direction:column;gap:3px}
-.mrow{position:relative;display:grid;grid-template-columns:1.6em minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 6px;font-size:.86rem}
-.mrow .bar{position:absolute;left:0;top:2px;bottom:2px;border-radius:3px;opacity:.22;background:var(--cc)}
-.mrow > *{position:relative}
-.mrow .r{font:400 .76rem var(--f-mono);color:var(--muted)}
-.mrow .v{font:600 .8rem var(--f-mono);white-space:nowrap}
-.mrow .v span{color:var(--muted);font-weight:400}
-
 /* ---- same on every boss page: maps fit the screen in any orientation; panels side by side always line up ---- */
 /* the map is as big as fits: at most 760 px, and no taller than the screen once you scroll to it (landscape phones, laptops) */
 :root{--mapw:min(760px,max(240px,calc(100svh - 70px)))}
 .mapgrid{grid-template-columns:minmax(0,var(--mapw)) minmax(0,1fr);align-items:stretch}
 .mpanel .mapbox{width:100%;max-width:var(--mapw);margin-left:auto;margin-right:auto}
 @media (max-width:1200px),(orientation:portrait){.mapgrid{grid-template-columns:minmax(0,1fr)}.vpanel{contain:none}.vpanel .vt{flex:none;max-height:none}}
-/* panels in a row are the same height (the tallest sets it); stacked short panels stretch to line up with their neighbour */
-.grid2,.lower,.bottom,.mods{align-items:stretch}
-.bottom .stack > .panel:last-child{flex:1 1 auto}
+/* panels in a row are the same height (the tallest sets it) */
+.grid2,.lower,.mods{align-items:stretch}
 .mods{columns:auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
 .mods > .panel{margin-bottom:0}
 .wrap > .mods{margin-bottom:0}
@@ -227,18 +197,12 @@ td.what{white-space:normal;text-align:left;width:auto;min-width:8em}
 td.det{white-space:normal;text-align:left;width:auto;min-width:9em;color:var(--muted)}
 td.det .pn{font-weight:600}
 @media (max-width:400px){.mpanel .ovseg button{padding:6px 8px}}   /* the map's overlay switch fits a 360 px phone */
-@media (max-width:400px){table.st.vert{font-size:.6rem} table.st.vert th:not(:first-child),table.st.vert td:not(:first-child){padding-left:1px}}   /* many avoidable columns on a phone */
 
 
-/* ---- no empty space in a row (Taylor 2026-10-31): Damage sets the bottom row's height and the column beside it ends level
-   (Early deaths fills what's left and scrolls); paired mechanic cards end where the shorter one ends and the taller one
+/* ---- no empty space in a row (Taylor 2026-10-31): paired mechanic cards end where the shorter one ends and the taller one
    scrolls (shared.js fitPairs). Scrolling cards fade at the bottom while there's more (.scrollfit / .more) ---- */
 .scrollfit{overflow-y:auto;min-height:0}
 .scrollfit.more{-webkit-mask-image:linear-gradient(to bottom,#000 82%,transparent);mask-image:linear-gradient(to bottom,#000 82%,transparent)}
-.bottom .stack > .panel{flex:none}
-.bottom .stack > .panel:last-child{flex:1 1 0;min-height:300px;display:flex;flex-direction:column;contain:size}
-.bottom .stack > .panel:last-child > .scrollfit{flex:1 1 0}
 .mods{align-items:start}
 .mods > .panel{display:flex;flex-direction:column}
 .mods > .panel.fit > .tw{flex:1 1 0}
-@media (max-width:800px){.bottom .stack > .panel:last-child{contain:none;flex:none;min-height:0}.bottom .stack > .panel:last-child > .scrollfit{flex:none;max-height:420px}}

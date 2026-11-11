@@ -169,7 +169,7 @@ function renderBosses(){
     const s = data && canOpen(b) ? stats(IDX[team.id][b.id], diff) : null;
     const line = s && s.pulls ? `<span class="ps">${s.pulls} pull${s.pulls === 1 ? '' : 's'} · ${s.kills ? '<span class="k">Killed</span>' : s.best != null ? `best ${(s.best * 100).toFixed(1)}%` : 'no kill'}</span>` : '';
     const inner = `<span class="pic"><img src="img/bosses/${b.id}.webp" alt="" loading="lazy" onerror="this.remove()"></span><span class="nm">${esc(b.name)}${line}</span>`;
-    if (s && s.pulls) return `<li><a class="boss" href="${bossUrl(b.page, team.id, diff)}">${inner}</a></li>`;
+    if (s && (s.pulls || openDiff(diff, b.id, team))) return `<li><a class="boss" href="${bossUrl(b.page, team.id, diff)}">${inner}</a></li>`;
     const tip = !team ? 'Choose your team first' : !b.page ? 'Not yet supported' : hasData[team.id] === false ? 'No data for this team yet'
       : !data ? 'Checking for data…' : !canOpen(b) ? 'Needs testing' : `No ${DN[diff]} pulls yet`;   // untested pages stay closed (SHOW_UNTESTED)
     return `<li><span class="boss${team ? ' off' : ''}" data-tip="${tip}" tabindex="0" aria-disabled="true">${inner}</span></li>`;

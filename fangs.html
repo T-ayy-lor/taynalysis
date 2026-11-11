@@ -185,40 +185,6 @@ td.offc{opacity:.45}
 .ctl .seg{flex:none}
 .seg.mini button{padding:4px 9px;font-size:.8rem}
 
-/* standard bottom panels, drawn by shared.js: avoidable damage by ability, meters, early deaths */
-table.st{border-collapse:collapse;width:100%;font-size:.86rem}
-table.st th,table.st td{padding:6px 0 6px 14px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;width:1%}
-table.st th:first-child,table.st td:first-child{padding-left:0;text-align:left}
-table.st th.l,table.st td.l{text-align:left} table.st .w{width:auto}
-table.st th{font-family:var(--f-display);font-weight:600;font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);vertical-align:bottom;white-space:normal}
-table.st th.so{cursor:pointer;user-select:none} table.st th.so:hover{color:var(--accent)}
-table.st th.asc::after{content:'▲';font-size:.7em;margin-left:3px} table.st th.desc::after{content:'▼';font-size:.7em;margin-left:3px}
-table.st td.n{font-family:var(--f-mono)} table.st td.l{text-align:left} table.st td.z{color:var(--muted)} table.st td.bad{color:var(--crit);font-weight:600}
-table.st .sh{display:none}
-table.st.narrow .lg{display:none} table.st.narrow .sh{display:inline}
-table.st.vert{font-size:.66rem} table.st.vert th:not(:first-child),table.st.vert td:not(:first-child){padding-left:3px}
-table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;line-height:1}
-.sm{display:flex;flex-direction:column;gap:3px}
-.smr{position:relative;display:grid;grid-template-columns:1.6em minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 6px;font-size:.86rem}
-.smr .bar{position:absolute;left:0;top:2px;bottom:2px;border-radius:3px;opacity:.22;background:var(--cc)}
-.smr > *{position:relative}
-.smr .r{font:400 .76rem var(--f-mono);color:var(--muted)}
-.smr .v{font:600 .8rem var(--f-mono);white-space:nowrap} .smr .v span{color:var(--muted);font-weight:400} .smr .v.z{color:var(--muted)}
-.sm.short{max-height:12.6em;overflow-y:auto}
-.sm.short.more{-webkit-mask-image:linear-gradient(to bottom,#000 78%,transparent);mask-image:linear-gradient(to bottom,#000 78%,transparent)}
-.bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
-.bottom .stack{display:flex;flex-direction:column;gap:18px;min-width:0}
-@media (max-width:800px){.bottom{grid-template-columns:minmax(0,1fr)}}
-@media (max-width:600px){table.st{font-size:.8rem} table.st th,table.st td{padding-left:6px} table.st th{font-size:.62rem;letter-spacing:.02em}}
-
-/* bar meters */
-.meter{display:flex;flex-direction:column;gap:3px}
-.mrow{position:relative;display:grid;grid-template-columns:1.6em minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 6px;font-size:.86rem}
-.mrow .bar{position:absolute;left:0;top:2px;bottom:2px;border-radius:3px;opacity:.22;background:var(--cc)}
-.mrow > *{position:relative}
-.mrow .r{font:400 .76rem var(--f-mono);color:var(--muted)}
-.mrow .v{font:600 .8rem var(--f-mono);white-space:nowrap}
-.mrow .v span{color:var(--muted);font-weight:400}
 
 /* setup editors */
 details.setup{border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:12px}
@@ -252,25 +218,19 @@ td.hov{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;te
 .mapgrid .kpanel{grid-column:1/-1}   /* Rouse the Brood kicks: under the map row, or right under the map once the row stacks */
 @media (max-width:1200px),(orientation:portrait){.mapgrid{grid-template-columns:minmax(0,1fr)}.vpanel{contain:none}.vpanel .vt{flex:none;max-height:none}}
 @media (max-width:1200px),(orientation:portrait){.mapgrid .kpanel{order:1}.mapgrid .vpanel{order:2}}
-/* panels in a row are the same height (the tallest sets it); stacked short panels stretch to line up with their neighbour */
-.grid2,.lower,.bottom,.mods{align-items:stretch}
-.bottom .stack > .panel:last-child{flex:1 1 auto}
+/* panels in a row are the same height (the tallest sets it) */
+.grid2,.lower,.mods{align-items:stretch}
 /* many marks on a map: smaller, see-through dots (set by renderMap: busy over 60 marks, dense over 150) */
 #mapsvg svg.busy g[data-tip] > circle:last-child{r:4.2px;stroke-width:1px}
 #mapsvg svg.dense g[data-tip] > circle:last-child{r:3px;stroke-width:.6px;opacity:.75}
 #mapsvg svg.dense g[data-tip] > path{opacity:.8}
-/* ---- no empty space in a row (Taylor 2026-10-31): Damage sets the bottom row's height and the column beside it ends level
-   (Early deaths fills what's left and scrolls); paired mechanic cards end where the shorter one ends and the taller one
+/* ---- no empty space in a row (Taylor 2026-10-31): paired mechanic cards end where the shorter one ends and the taller one
    scrolls (shared.js fitPairs). Scrolling cards fade at the bottom while there's more (.scrollfit / .more) ---- */
 .scrollfit{overflow-y:auto;min-height:0}
 .scrollfit.more{-webkit-mask-image:linear-gradient(to bottom,#000 82%,transparent);mask-image:linear-gradient(to bottom,#000 82%,transparent)}
-.bottom .stack > .panel{flex:none}
-.bottom .stack > .panel:last-child{flex:1 1 0;min-height:300px;display:flex;flex-direction:column;contain:size}
-.bottom .stack > .panel:last-child > .scrollfit{flex:1 1 0}
 .mods{align-items:start}
 .mods > .panel{display:flex;flex-direction:column}
 .mods > .panel.fit > .tw{flex:1 1 0}
-@media (max-width:800px){.bottom .stack > .panel:last-child{contain:none;flex:none;min-height:0}.bottom .stack > .panel:last-child > .scrollfit{flex:none;max-height:420px}}
 </style>
 </head>
 <body>
@@ -340,22 +300,6 @@ td.hov{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;te
     <p class="note">Slam 1 is group 1's, slam 2 group 2's, slam 3 group 3's. <b>Correct</b>: soaked your group's slam and the Tainted Blood in the same Ravenous Feast. <b>Wrong group</b>: soaked another group's slam. <b>Missed</b>: didn't soak your group's slam, or soaked it but not the Tainted Blood. Dead players aren't counted. Groups are set under the table (Edit groups); each pull is scored with the groups set before it started, so a change never rewrites earlier pulls. Pulls from before any were set are scored with groups worked out from who soaked which slam that night.</p>
   </div>
 
-  <div class="bottom">
-    <div class="panel"><div class="ph"><h2>Damage</h2><select class="scope" data-s="dmg" aria-label="Pulls to show"></select></div><div id="dmg"></div></div>
-    <div class="stack">
-      <div class="panel"><div class="ph"><h2>Healing</h2><select class="scope" data-s="heal" aria-label="Pulls to show"></select></div><div id="heal"></div></div>
-      <div class="panel"><div class="ph"><h2>Dispels</h2><select class="scope" data-s="disp" aria-label="Pulls to show"></select></div><div id="disp"></div></div>
-      <div class="panel"><div class="ph"><h2>Early deaths</h2><select class="scope" data-s="deaths" aria-label="Pulls to show"></select></div>
-        <div class="tw scrollfit"><table id="deaths"></table></div></div>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="ph"><h2>Avoidable damage taken</h2><select class="scope" data-s="avoid" aria-label="Pulls to show"></select></div>
-    <div class="tw"><table id="avoidT"></table></div>
-    <p class="note">Damage taken from each, then how many hits (×N); shields count. Coiling Ichor doesn't count on the player carrying it, nor their own Congealed Gore in the 2.5 s after it drops under them; Corrosive Spit doesn't count on its target; Vile Flood and Stone Breaker don't count on tanks. Stir the Depths wave, Vile Flood, Congealed Gore and Noxious Slick: every time the player walked into it (its ticks add to the damage); most wave hits do no damage of their own (they cost an Eternal Venom stack). Concentrated Spittle and Clotted Bolt: Vexhul and Ithraz throw these when their tank is out of range.</p>
-  </div>
-
   <div class="panel">
     <h2>How this is measured</h2>
     <p class="note">The same uploader that feeds the Sszorak page reads the combat log for any boss pull with Vexhul or Ithraz in it. <b>Eternal Venom</b>: each new stack is matched to what hit that player in the second around it; Caustic Globule, Venomous Emergence and Corrosive Spit are fine, anything else is unnecessary. <b>Globules</b>: each one belongs to the Caustic Deluge cast before it spawned; a soak is being hit by its rupture. <b>Coiling Ichor</b>: where the player stood when the debuff came off. <b>Quadrants</b>: from where each Broodling was when it cast, relative to the bosses and the middle of the raid. Spell IDs come from the Encounter Journal and the map isn't calibrated yet, so expect adjustments after the first real pulls. Healing includes absorbs and leaves out overhealing. Early deaths are the first 3 deaths of each pull. Kick order and soak groups are set on this page (Edit kick order, Edit groups); before any were set, the kick order is the one in setup.txt and soak groups are worked out from who soaked which slam.</p>
@@ -393,7 +337,7 @@ const pct = v => Math.round(v * 100) + '%';
 document.documentElement.dataset.theme = 'dark';   // dark only: the light theme and its switch were removed (2026-10-31)
 
 // ---- view state ----
-const SCOPES = ['map', 'venom', 'soak', 'ichor', 'kicks', 'feast', 'avoid', 'dmg', 'heal', 'disp', 'deaths'];
+const SCOPES = ['map', 'venom', 'soak', 'ichor', 'kicks', 'feast'];
 const QUAD_CFG = {meleeYd: 25, frontYd: 11, flip: false};
 const CAST_LEN = 3.2;   // Visceral Burst's cast time in the logs is 3 s   // bosses stand about 16 yd either side of the middle   // how Broodlings are sorted into quadrants; tuned against real logs
 const st = {scope: Object.fromEntries(SCOPES.map(k => [k, DEF_SCOPE])), ov: '', diff: null};   // ov: 'v:<venom cause>' or 'ichor' ('' = the biggest cause)   // scope: 'latest', 'all' or a pull's key
@@ -419,7 +363,7 @@ function nights(){
 }
 // "ignore events after N deaths" (shared.js cutPull): how each list in a pull is timed; dmg / heal / dispels stay whole
 const CUT_SPEC = {deaths: 'row', deluges: 'num', rouses: 'num', venom: 'obj:t', globules: 'obj:born', soaks: 'row', ichor: 'obj:on', ichorHits: 'row', brood: 'obj:t',
-  feasts: (v, T) => v.filter(f => f.t <= T).map(f => ({...f, slams: (f.slams || []).filter(s => s.t <= T)})), avoid: 'row'};
+  feasts: (v, T) => v.filter(f => f.t <= T).map(f => ({...f, slams: (f.slams || []).filter(s => s.t <= T)}))};
 function viewPulls(ns){ return (SITE.view === 'all' ? ns.flatMap(n => n.pulls) : ((ns.find(n => n.key === SITE.view) || {}).pulls || [])).map(p => cutPull(p, CUT_SPEC)); }
 // checked every few seconds; the page only redraws when something actually changed
 async function checkSite(){
@@ -530,7 +474,8 @@ const srcTip = sn => SRC_TIP[sn] || `Eternal Venom stacks from ${sn}`;
 const srcName = s => SRC_NAME[s] || s;
 const byRoster = (a, b) => rosterIdx(a) - rosterIdx(b) || a.localeCompare(b);
 const people = list => list.length ? [...new Set(list.flatMap(p => present(p)))].sort(byRoster) : TEAM_ROSTER.map(r => r[0]);
-const present = p => { const s = new Set([...Object.keys(p.dmg || {}), ...Object.keys(p.heal || {}), ...p.deaths.map(d => d[1])]); return [...s]; };
+// who was in the pull: p.who (did damage or healing; from 2026-11-05), older nights the keys of their damage / healing lists
+const present = p => { const s = new Set([...(p.who || [...Object.keys(p.dmg || {}), ...Object.keys(p.heal || {})]), ...p.deaths.map(d => d[1])]); return [...s]; };
 const pullLabel = (p, all) => pullLabel0(p, all) + flagTag(p.fk);
 const pullLabel0 = (p, all) => `${all ? dayDate(p.night) + ' · ' : ''}Pull ${p.seq} · ${pullTime(p.date, p.clock, p.tz)} · ${mss(p.dur)} · ${p.live ? 'in progress' : p.kill ? 'kill' : 'wipe'}` +
   (p.kill || !p.hp ? '' : ' · ' + Object.entries(p.hp).map(([b, v]) => `${b} ${pct(v)}`).join(', '));
@@ -733,7 +678,7 @@ function renderIchor(list){
   const rs = Object.values(R).sort((a, b) => b.hits - a.hits || b.first - a.first || b.taken - a.taken || byRoster(a.n, b.n));
   const kc = mythic ? '<th>Going to a kick</th>' : '';
   const kick = r => single ? (r.k1 ? `${mss(r.k1.t)} ${r.k1.by === r.n ? 'kicked' : 'their turn'}` : '–') : r.kick;
-  $('ichorT').innerHTML = `<tr><th class="l fill">Player</th><th>${single ? 'Time' : 'Ichors'}</th><th>Hits</th><th>1st tick</th><th>Dealt</th><th>Taken</th>${kc}</tr>` +
+  $('ichorT').innerHTML = `<tr><th class="l fill">Player</th><th>${single ? 'Time' : 'Ichors'}</th><th>Hits</th><th>1st tick</th><th>Dealt to others</th><th>Taken</th>${kc}</tr>` +
     (rs.length ? rs.map(r => `<tr><td class="l">${pname(r.n)}</td>` +
       `<td class="num${r.carried ? '' : ' dim'}">${single ? (r.times.length ? r.times.map(mss).join(', ') : '–') : r.carried}</td>` +
       `<td class="num ${r.hits ? 'bad hov' : 'dim'}"${r.hits ? tip('Hit', r.who) : ''}>${r.hits}</td>` +
@@ -745,7 +690,7 @@ function renderIchor(list){
   const old = list.length && list.every(p => !p.ichorHits);
   $('ichorNote').textContent = (old ? 'These pulls were logged before this was tracked. ' : '') +
     (single ? 'Time: when their Coiling Ichor landed (only ones whose circle hit someone). ' : 'Ichors: how many of theirs hit someone. ') +
-    'Hits: ticks of their circle on other players, not counting the 1st tick (1 s after it lands, with the raid still stacked). Dealt: every tick of theirs on others. Taken: every tick of someone else\'s circle on them (×N ticks). Shields count.' +
+    'Hits: ticks of their circle on other players, not counting the 1st tick (1 s after it lands, with the raid still stacked). Dealt to others: damage of every tick of their circle on other players. Taken: every tick of someone else\'s circle on them (×N ticks). Shields count.' +
     (mythic ? (single ? ' Going to a kick: they had a Visceral Burst to kick (their turn, or they kicked it) within 4 s of a hit.' : ' Going to a kick: of their Hits, how many came while they had a Visceral Burst to kick (their turn, or they kicked it) within 4 s.') : '') +
     ' Hover Hits for who was hit, Taken for whose circles.';
 }
@@ -861,18 +806,6 @@ function renderFeast(list){
   groupEditor($('feastEd'), {boss: 'twin-fangs', set: 'feast', options: [1, 2, 3].map(i => [i, 'Group ' + i]), names: [...new Set([...people(list), ...TEAM_ROSTER.map(r => r[0])])].sort(byRoster), current: grp, changes: GROUPS.feast,
     onSaved: ch => { GROUPS.feast = ch; render(); }});
 }
-// ---- bottom panels: shared.js draws them with this page's helpers ----
-const isHealer = n => (ROSTER.find(r => r[0] === n) || [])[2] === 'Healer' || [105, 1468, 270, 65, 256, 257, 264].includes(SPEC_OF[n]);
-const isTank = n => (ROSTER.find(r => r[0] === n) || [])[2] === 'Tank' || [250, 581, 104, 268, 66, 73].includes(SPEC_OF[n]);
-const H = {pname, order: byRoster, healer: isHealer, people, color, spell: n => ABILITY[n] || {'Stir the Depths wave': 1292807, 'Caustic Deluge splash': 1289994}[n]};
-// avoidable hits (uploader's FangsParser.AVOID): Coiling Ichor only counts on players near someone else's ichor; Vile Flood not on tanks
-const AVOID_F = ['Stir the Depths wave', 'Vile Flood', 'Caustic Deluge splash', 'Coiling Ichor', 'Congealed Gore', 'Sanguine Storm', 'Noxious Slick', 'Barbed Bulwark',
-  'Corrosive Spit', 'Stone Breaker', 'Concentrated Spittle', 'Clotted Bolt'];
-const AVOID_SHORT = {'Stir the Depths wave': 'Wave', 'Vile Flood': 'Flood', 'Caustic Deluge splash': 'Splash', 'Coiling Ichor': 'Ichor', 'Congealed Gore': 'Gore',
-  'Sanguine Storm': 'Storm', 'Noxious Slick': 'Slick', 'Barbed Bulwark': 'Bulwark', 'Corrosive Spit': 'Spit', 'Stone Breaker': 'Breaker',
-  'Concentrated Spittle': 'Spittle', 'Clotted Bolt': 'Bolt'};
-const avoidHits = p => (p.avoid || []).filter(([t, n, s]) => !((s === 'Vile Flood' || s === 'Stone Breaker') && isTank(n)) &&
-  !(s === 'Coiling Ichor' && p.ichor.some(c => c.n === n && (c.on == null || c.on <= t + 0.5) && c.off >= t - 0.5)));
 
 // ---- ability tooltips: ability names link to Wowhead, whose tooltip script shows the in-game ability text on hover ----
 const ABILITY = {'Eternal Venom': 1290336, 'Caustic Deluge': 1289192, 'Caustic Globule': 1289993, 'Caustic Globules': 1289993, 'Unsoaked globule burst': 1289993, 'Unsoaked globules': 1289993, 'Falling globules': 1289192, 'Waves': 1290956,
@@ -938,10 +871,8 @@ function render(){
   renderTimeline(ns);
   renderMap(viewAll, L.map, L.map.length > 1); renderVenom(L.venom, all);
   renderSoak(L.soak, all); renderIchor(L.ichor); renderKicks(L.kicks, all); renderFeast(L.feast);
-  drawAvoid($('avoidT'), L.avoid.flatMap(avoidHits), AVOID_F, AVOID_SHORT, H);
-  drawDamage($('dmg'), L.dmg, H); drawHealing($('heal'), L.heal, H); drawDispels($('disp'), L.disp, H); drawDeaths($('deaths'), L.deaths, H);
   document.querySelectorAll('.panel').forEach(linkify);
-  sortTables(); sortStd(); setLiveStatus();
+  sortTables(); setLiveStatus();
 }
 
 // ---- last-updated bar: this difficulty's pulls in view, the latest one, and when the uploader last sent data ----

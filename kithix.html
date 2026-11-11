@@ -174,51 +174,14 @@ td.s2{color:var(--warn);font-weight:600} td.s3{color:var(--crit);font-weight:600
 .seg.mini button{padding:4px 9px;font-size:.8rem}
 
 
-/* standard bottom panels, drawn by shared.js: avoidable damage by ability, meters, early deaths */
-table.st{border-collapse:collapse;width:100%;font-size:.86rem}
-table.st th,table.st td{padding:6px 0 6px 14px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;width:1%}
-table.st th:first-child,table.st td:first-child{padding-left:0;text-align:left}
-table.st th.l,table.st td.l{text-align:left} table.st .w{width:auto}
-table.st th{font-family:var(--f-display);font-weight:600;font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);vertical-align:bottom;white-space:normal}
-table.st th.so{cursor:pointer;user-select:none} table.st th.so:hover{color:var(--accent)}
-table.st th.asc::after{content:'▲';font-size:.7em;margin-left:3px} table.st th.desc::after{content:'▼';font-size:.7em;margin-left:3px}
-table.st td.n{font-family:var(--f-mono)} table.st td.l{text-align:left} table.st td.z{color:var(--muted)} table.st td.bad{color:var(--crit);font-weight:600}
-table.st .sh{display:none}
-table.st.narrow .lg{display:none} table.st.narrow .sh{display:inline}
-table.st.vert{font-size:.66rem} table.st.vert th:not(:first-child),table.st.vert td:not(:first-child){padding-left:3px}
-table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;line-height:1}
-.sm{display:flex;flex-direction:column;gap:3px}
-.smr{position:relative;display:grid;grid-template-columns:1.6em minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 6px;font-size:.86rem}
-.smr .bar{position:absolute;left:0;top:2px;bottom:2px;border-radius:3px;opacity:.22;background:var(--cc)}
-.smr > *{position:relative}
-.smr .r{font:400 .76rem var(--f-mono);color:var(--muted)}
-.smr .v{font:600 .8rem var(--f-mono);white-space:nowrap} .smr .v span{color:var(--muted);font-weight:400} .smr .v.z{color:var(--muted)}
-.sm.short{max-height:12.6em;overflow-y:auto}
-.sm.short.more{-webkit-mask-image:linear-gradient(to bottom,#000 78%,transparent);mask-image:linear-gradient(to bottom,#000 78%,transparent)}
-.bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
-.bottom .stack{display:flex;flex-direction:column;gap:18px;min-width:0}
-@media (max-width:800px){.bottom{grid-template-columns:minmax(0,1fr)}}
-@media (max-width:600px){table.st{font-size:.8rem} table.st th,table.st td{padding-left:6px} table.st th{font-size:.62rem;letter-spacing:.02em}}
-
-/* bar meters */
-.mrow .v.z{color:var(--muted)}
-.meter{display:flex;flex-direction:column;gap:3px}
-.mrow{position:relative;display:grid;grid-template-columns:1.6em minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 6px;font-size:.86rem}
-.mrow .bar{position:absolute;left:0;top:2px;bottom:2px;border-radius:3px;opacity:.22;background:var(--cc)}
-.mrow > *{position:relative}
-.mrow .r{font:400 .76rem var(--f-mono);color:var(--muted)}
-.mrow .v{font:600 .8rem var(--f-mono);white-space:nowrap}
-.mrow .v span{color:var(--muted);font-weight:400}
-
 /* ---- same on every boss page: maps fit the screen in any orientation; panels side by side always line up ---- */
 /* the map is as big as fits: at most 760 px, and no taller than the screen once you scroll to it (landscape phones, laptops) */
 :root{--mapw:min(760px,max(240px,calc(100svh - 70px)))}
 .mapgrid{grid-template-columns:minmax(0,var(--mapw)) minmax(0,1fr);align-items:stretch}
 .mpanel .mapbox{width:100%;max-width:var(--mapw);margin-left:auto;margin-right:auto}
 @media (max-width:1200px),(orientation:portrait){.mapgrid{grid-template-columns:minmax(0,1fr)}.vpanel{contain:none}.vpanel .vt{flex:none;max-height:none}}
-/* panels in a row are the same height (the tallest sets it); stacked short panels stretch to line up with their neighbour */
-.grid2,.lower,.bottom,.mods{align-items:stretch}
-.bottom .stack > .panel:last-child{flex:1 1 auto}
+/* panels in a row are the same height (the tallest sets it) */
+.grid2,.lower,.mods{align-items:stretch}
 .mods{columns:auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
 .mods > .panel{margin-bottom:0}
 .wrap > .mods{margin-bottom:0}
@@ -228,18 +191,13 @@ table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-
 #mapsvg svg.dense g[data-tip] > circle:last-child{r:3px;stroke-width:.6px;opacity:.75}
 #mapsvg svg.dense g[data-tip] > path{opacity:.8}
 @media (max-width:400px){.mpanel .ovseg button{padding:6px 8px}}   /* the map's overlay switch fits a 360 px phone */
-/* ---- no empty space in a row (Taylor 2026-10-31): Damage sets the bottom row's height and the column beside it ends level
-   (Early deaths fills what's left and scrolls); paired mechanic cards end where the shorter one ends and the taller one
+/* ---- no empty space in a row (Taylor 2026-10-31): paired mechanic cards end where the shorter one ends and the taller one
    scrolls (shared.js fitPairs). Scrolling cards fade at the bottom while there's more (.scrollfit / .more) ---- */
 .scrollfit{overflow-y:auto;min-height:0}
 .scrollfit.more{-webkit-mask-image:linear-gradient(to bottom,#000 82%,transparent);mask-image:linear-gradient(to bottom,#000 82%,transparent)}
-.bottom .stack > .panel{flex:none}
-.bottom .stack > .panel:last-child{flex:1 1 0;min-height:300px;display:flex;flex-direction:column;contain:size}
-.bottom .stack > .panel:last-child > .scrollfit{flex:1 1 0}
 .mods{align-items:start}
 .mods > .panel{display:flex;flex-direction:column}
 .mods > .panel.fit > .tw{flex:1 1 0}
-@media (max-width:800px){.bottom .stack > .panel:last-child{contain:none;flex:none;min-height:0}.bottom .stack > .panel:last-child > .scrollfit{flex:none;max-height:420px}}
 </style>
 </head>
 <body>
@@ -318,22 +276,6 @@ table.st.vert th.ab .sh{writing-mode:vertical-rl;transform:rotate(180deg);white-
     </div>
   </div>
 
-  <div class="bottom">
-    <div class="panel"><div class="ph"><h2>Damage</h2><select class="scope" data-s="dmg" aria-label="Pulls to show"></select></div><div class="meter" id="dmg"></div></div>
-    <div class="stack">
-      <div class="panel"><div class="ph"><h2>Healing</h2><select class="scope" data-s="heal" aria-label="Pulls to show"></select></div><div class="meter" id="heal"></div></div>
-      <div class="panel"><div class="ph"><h2>Dispels</h2><select class="scope" data-s="disp" aria-label="Pulls to show"></select></div><div class="meter" id="disp"></div></div>
-      <div class="panel"><div class="ph"><h2>Early deaths</h2><select class="scope" data-s="deaths" aria-label="Pulls to show"></select></div>
-        <div class="tw scrollfit"><table id="deaths"></table></div></div>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="ph"><h2>Avoidable damage taken</h2><select class="scope" data-s="avoid" aria-label="Pulls to show"></select></div>
-    <div class="tw"><table id="avoidT"></table></div>
-    <p class="note">Damage taken from each, then how many hits (×N); shields count. Venom Roar and Dark Devastation don't count on tanks; Null Gate and Explosive Restabilization don't count on the player who set them off.</p>
-  </div>
-
   <div class="panel">
     <h2>How this is measured</h2>
     <p class="note">The uploader reads the combat log for Kith'ix pulls on any difficulty, matching abilities by name. Checked against 32 Heroic pulls (Oct 2026); Mythic-only details haven't been seen in a log yet. The log doesn't say who touched a beetle: the name is whoever stood closest when it blew up. The room image is from raidstrats.gg and isn't lined up with the log's coordinates yet, so positions are approximate.</p>
@@ -373,7 +315,7 @@ const DIFF = {14: 'Normal', 15: 'Heroic', 16: 'Mythic'};
 document.documentElement.dataset.theme = 'dark';   // dark only: the light theme and its switch were removed (2026-10-31)
 
 // ---- view state ----
-const SCOPES = ['map', 'beetle', 'inter', 'ext', 'fear', 'sting', 'tank', 'gate', 'avoid', 'dmg', 'heal', 'disp', 'deaths'];
+const SCOPES = ['map', 'beetle', 'inter', 'ext', 'fear', 'sting', 'tank', 'gate'];
 const st = {scope: Object.fromEntries(SCOPES.map(k => [k, DEF_SCOPE])), ov: 'beetle', diff: null};   // scope: 'latest', 'all' or a pull's key
 try { const v = JSON.parse(localStorage.getItem('kithix-view') || '{}'); if (['beetle', 'gates', 'fear'].includes(v.ov)) st.ov = v.ov; } catch (e) {}
 const saveView = () => { try { localStorage.setItem('kithix-view', JSON.stringify({ov: st.ov})); } catch (e) {} };
@@ -396,7 +338,7 @@ function nights(){
   return ns;
 }
 // "ignore events after N deaths" (shared.js cutPull): how each list in a pull is timed; dmg / heal / dispels stay whole
-const CUT_SPEC = {casts: 'dict:num', auras: 'dict:at:1', hits: 'row', adds: 'row', npc: 'at:3', beetles: 'row', hatched: 'num', deaths: 'row', avoid: 'row'};
+const CUT_SPEC = {casts: 'dict:num', auras: 'dict:at:1', hits: 'row', adds: 'row', npc: 'at:3', beetles: 'row', hatched: 'num', deaths: 'row'};
 function viewPulls(ns){ return (SITE.view === 'all' ? ns.flatMap(n => n.pulls) : ((ns.find(n => n.key === SITE.view) || {}).pulls || [])).map(p => cutPull(p, CUT_SPEC)); }
 // checked every few seconds; the page only redraws when something actually changed
 async function checkSite(){
@@ -421,8 +363,6 @@ async function checkSite(){
 
 // ---- helpers over a pull ----
 const byRoster = (a, b) => rosterIdx(a) - rosterIdx(b) || a.localeCompare(b);
-const present = p => [...new Set([...Object.keys(p.dmg || {}), ...Object.keys(p.heal || {}), ...p.deaths.map(d => d[1])])];
-const people = list => [...new Set(list.flatMap(present))].sort(byRoster);
 const auras = (p, a) => (p.auras && p.auras[a]) || [];          // [player, on, off, top stack, source id, [x, y] when it ended]
 // [t, player, ability, amount, [x, y]]. Abilities that do two kinds of damage at once (Dark Devastation, Venom Roar, Explosive
 // Restabilization: Shadow + Physical) log two lines per hit: lines for the same player and ability under 0.5 s apart are one hit.
@@ -442,18 +382,6 @@ const pullLabel0 = (p, all) => `${all ? dayDate(p.night) + ' · ' : ''}Pull ${p.
 const inc = (o, k, v = 1) => { o[k] = (o[k] || 0) + v; };
 const cell = (v, cls, fmt) => `<td class="num${v ? (cls ? ' ' + cls : '') : ' dim'}">${fmt ? fmt(v) : v}</td>`;
 const blankRows = (cols, n) => Array.from({length: n}, () => `<tr><td class="l dim">—</td>${'<td class="num dim">0</td>'.repeat(cols)}</tr>`).join('');
-
-// avoidable hits: which hits count, per the rules in the note under the table
-const AVOID = ['Venom Roar', 'Twisted Appendage', 'Suffocation', 'Dark Devastation', 'Voidscar', 'Nullshards', 'Null Gate', 'Explosive Restabilization'];
-function avoidHits(p){
-  const gateEnd = auras(p, 'Null Gate').filter(a => a[2] != null), negEnd = auras(p, 'Negation').filter(a => a[2] != null);
-  return merged(p).filter(h => {
-    if (!AVOID.includes(h[2])) return false;
-    if ((h[2] === 'Venom Roar' || h[2] === 'Dark Devastation') && isTank(h[1])) return false;
-    if (h[2] === 'Null Gate' && gateEnd.some(a => a[0] === h[1] && Math.abs(a[2] - h[0]) <= 1)) return false;
-    if (h[2] === 'Explosive Restabilization' && negEnd.some(a => a[0] === h[1] && Math.abs(a[2] - h[0]) <= 1.5)) return false;
-    return true; });
-}
 
 // ---- map: the room image; world -> image fit is provisional until calibrated ----
 // box: the platform's extent on the image (x0, y0, x1, y1). rot 0 puts Kith'ix (where his tanks stand, about 32 yd
@@ -515,10 +443,6 @@ function renderMap(viewAll, list, all){
   box.addEventListener('pointerleave', () => { tip.hidden = true; });
 })();
 $('ovSeg').querySelectorAll('button').forEach(b => b.onclick = () => { st.ov = b.dataset.ov; saveView(); render(); });
-
-// ---- avoidable damage taken, by ability (drawn by drawAvoid in shared.js) ----
-const AB_SHORT = {'Venom Roar': 'Roar', 'Twisted Appendage': 'Tentacle', 'Suffocation': 'Suffoc.', 'Dark Devastation': 'Devast.', 'Voidscar': 'Voidscar',
-  'Nullshards': 'Shards', 'Null Gate': 'Gate', 'Explosive Restabilization': 'Restab.'};
 
 // ---- Bomber Beetles: kited and exploded one at a time. Every explosion puts a Digestive Juices stack on the whole raid and
 // restarts its 4 s, so two close together stack. Colour = the stack it took the raid to: plain 1, yellow 2, red 3+ ----
@@ -657,9 +581,6 @@ function renderTimeline(ns){
     render(); });
 }
 
-// ---- bottom panels: shared.js draws them with this page's helpers ----
-const H = {pname, order: byRoster, healer: n => role(n) === 'Healer', people, color, spell: n => ABILITY[n]};
-
 // ---- ability tooltips: ability names link to Wowhead, whose tooltip script shows the in-game ability text on hover ----
 const ABILITY = {"Light's Embrace": 1304508, 'Extinguish': 1304424, 'Abyssal Grasp': 1303406, 'Overwhelming Fear': 1304046, 'Unspeakable Horrors': 1304045,
   'Suffocating Darkness': 1302951, 'Dark Frenzy': 1303260, 'Bomber Beetles': 1302117, 'Bomber Beetle': 1302117, 'Digestive Juices': 1302319, 'Mindstingers': 1304040,
@@ -720,13 +641,12 @@ function render(){
   $('sub').textContent = '';
   renderTimeline(ns);
   SCREAM_BAR = screamBar(allDiff);
-  renderMap(viewAll, L.map, L.map.length > 1); drawAvoid($('avoidT'), L.avoid.flatMap(avoidHits), AVOID, AB_SHORT, H);
+  renderMap(viewAll, L.map, L.map.length > 1);
   renderBeetle(L.beetle); renderInter(L.inter, allDiff); renderExt(L.ext); renderFear(L.fear, allDiff);
   renderSting(L.sting); renderTank(L.tank); renderGate(L.gate);
   document.body.classList.toggle('diff14', st.diff === 14);
-  drawDamage($('dmg'), L.dmg, H); drawHealing($('heal'), L.heal, H); drawDispels($('disp'), L.disp, H); drawDeaths($('deaths'), L.deaths, H);
   document.querySelectorAll('.panel').forEach(linkify);
-  sortTables(); sortStd(); setLiveStatus();
+  sortTables(); setLiveStatus();
 }
 
 // ---- last-updated bar: this difficulty's pulls in view, the latest one, and when the uploader last sent data ----

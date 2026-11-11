@@ -1,7 +1,7 @@
 // Shared page code for the bosses that run on one config each (Nek'zali, Entombed Sentinels, Vashnik, The Lost Explorers,
 // The Coiled Altar, Ula'tek). The page defines CFG before loading this file:
 //   CFG = {slug, name, enc: [encounter ids], map: {src, cal: {cx, cy, ppy, center: [x, y], rot}}, hitNames, modules: [...],
-//          avoid: {names, short, skip(hit, pull), note}, abilities: {name: spell id}, how: 'text'}
+//          abilities: {name: spell id}, how: 'text'}
 // The uploader's FailParser writes the data (data/<team>/<tier>/<slug>/). Each module is ONE mechanic of the fight and lists
 // what went wrong in it, and who:
 //   {id, title (the mechanic), diffs: '15,16' (only on those difficulties), note,
@@ -138,6 +138,7 @@ function buildPage(){
       <div class="mapbox" id="mapbox"><div id="mapsvg"></div><div class="tip" id="tip" hidden></div></div>
       <div class="seg ovseg" id="ovSeg" role="group" aria-label="Map overlay">${ovs.map(o => `<button type="button" data-ov="${o.id}">${esc(o.label)}</button>`).join('')}</div>
       <div class="key" id="mapKey"></div>
+      <div id="spotEd"></div>
     </div>
     <div class="panel vpanel"${first.diffs ? ` data-diffs="${first.diffs}"` : ''}>
       ${panelHead(esc(first.title), first.id)}
@@ -146,19 +147,6 @@ function buildPage(){
     </div>
   </div>
   ${rest.length ? `<div class="mods">${rest.map(mod).join('')}</div>` : ''}
-  <div class="bottom">
-    <div class="panel">${panelHead('Damage', 'dmg')}<div class="meter" id="dmg"></div></div>
-    <div class="stack">
-      <div class="panel">${panelHead('Healing', 'heal')}<div class="meter" id="heal"></div></div>
-      <div class="panel">${panelHead('Dispels', 'disp')}<div class="meter" id="disp"></div></div>
-      <div class="panel">${panelHead('Early deaths', 'deaths')}<div class="tw scrollfit"><table id="deaths"></table></div></div>
-    </div>
-  </div>
-  <div class="panel">
-    ${panelHead('Avoidable damage taken', 'avoid')}
-    <div class="tw"><table id="avoidT"></table></div>
-    <p class="note">${CFG.avoid.note || 'Damage taken from each, then how many hits (×N); shields count.'}</p>
-  </div>
   <div class="panel">
     <h2>How this is measured</h2>
     <p class="note">${CFG.how}</p>
@@ -168,7 +156,7 @@ buildPage();
 document.documentElement.dataset.theme = 'dark';   // dark only: the light theme and its switch were removed (2026-10-31)
 
 // ---- view state ----
-const SCOPES = ['map', ...CFG.modules.map(m => m.id), 'avoid', 'dmg', 'heal', 'disp', 'deaths'];
+const SCOPES = ['map', ...CFG.modules.map(m => m.id)];
 const OVS = OVERLAYS.map(o => o.id);
 const st = {scope: Object.fromEntries(SCOPES.map(k => [k, DEF_SCOPE])), ov: OVS[0], diff: null};   // scope: 'latest', 'all' or a pull's key
 try { const v = JSON.parse(localStorage.getItem(CFG.slug + '-view') || '{}'); if (OVS.includes(v.ov)) st.ov = v.ov; } catch (e) {}
@@ -191,9 +179,9 @@ function nights(){
   });
   return ns;
 }
-// "ignore events after N deaths" (shared.js cutPull): how each list in a pull is timed; dmg / heal / dispels stay whole
+// "ignore events after N deaths" (shared.js cutPull): how each list in a pull is timed
 const CUT_SPEC = {casts: 'dict:num', ctgt: 'dict:row', kicks: 'row', auras: 'dict:at:1', npc: 'at:3', hits: 'row', pulses: 'dict:row',
-  spawns: 'row', adds: 'row', deaths: 'row', avoid: 'row'};
+  spawns: 'row', adds: 'row', deaths: 'row', drops: 'row'};
 function viewPulls(ns){ return (SITE.view === 'all' ? ns.flatMap(n => n.pulls) : ((ns.find(n => n.key === SITE.view) || {}).pulls || [])).map(p => cutPull(p, CUT_SPEC)); }
 // checked every few seconds; the page only redraws when something actually changed
 async function checkSite(){
@@ -212,13 +200,13 @@ async function checkSite(){
   }
   if (await checkActivity()) changed = true;
   if (await refreshFlags(CFG.slug)) changed = true;   // pulls flagged with bad data
+  if (CFG.spots){ const ch = await loadGroups(CFG.slug, CFG.spots.set), raw = JSON.stringify(ch || []);   // assigned spots (admin-placed)
+    if (raw !== SPOTS.raw){ SPOTS.raw = raw; SPOTS.changes = ch || []; changed = true; } }
   if (!changed && SITE.err === err0) return;
   render();
 }
 
 const byRoster = (a, b) => rosterIdx(a) - rosterIdx(b) || a.localeCompare(b);
-const present = p => [...new Set([...Object.keys(p.dmg || {}), ...Object.keys(p.heal || {}), ...p.deaths.map(d => d[1])])];
-const people = list => [...new Set(list.flatMap(present))].sort(byRoster);
 const hpText = p => Object.entries(p.hp || {}).map(([b, v]) => `${b} ${pct(v)}`).join(' · ');
 const pullLabel = (p, all) => pullLabel0(p, all) + flagTag(p.fk);
 const pullLabel0 = (p, all) => `${all ? dayDate(p.night) + ' · ' : ''}Pull ${p.seq} · ${pullTime(p.date, p.clock, p.tz)} · ${mss(p.dur)} · ${p.live ? 'in progress' : p.kill ? 'kill' : 'wipe'}` +
@@ -227,8 +215,45 @@ const inc = (o, k, v = 1) => { o[k] = (o[k] || 0) + v; };
 const cell = (v, cls, fmt) => `<td class="num${v ? (cls ? ' ' + cls : '') : ' dim'}">${fmt ? fmt(v) : v}</td>`;
 const blankRows = (cols, n) => Array.from({length: n}, () => `<tr><td class="l dim">—</td>${'<td class="num dim">0</td>'.repeat(cols)}</tr>`).join('');
 
-// ---- avoidable hits: the config's abilities, minus the ones its skip() rule lets through ----
-function avoidHits(p){ return merged(p).filter(h => CFG.avoid.names.includes(h[2]) && !(CFG.avoid.skip && CFG.avoid.skip(h, p))); }
+
+// ---- assigned spots (CFG.spots; Coiled Altar: where Coalesced Venom / Virulent Mutation carriers drop them). Placed on the map
+// by an admin (Edit assigned spots, under the map) and saved with the editor key as a group set: data/<team>/<tier>/<slug>/
+// groups-<set>.json = {changes: [{at, diffs: [difficulty], groups: {"<kind>:<label>": [world x, world y]}}]}. Like groups, a
+// pull uses the spots saved before it started, on its difficulty; every page picks a new save up within 5 s. ----
+const SPOTS = {changes: null, raw: null, draft: null, draftDiff: null, sel: null, drag: null};
+const spotsNow = diff => groupsAt(SPOTS.changes, Date.now(), diff) || {};
+const spotsFor = p => groupsAt(SPOTS.changes, pullUtc(p), p.diff) || {};
+const spotsOf = (all, kind) => Object.entries(all).filter(([k]) => k.split(':')[0] === kind).map(([k, q]) => ({k, label: k.slice(k.indexOf(':') + 1), q}));
+// the assigned spot of that kind nearest to a drop, in force for that pull: {label, d (yards)}, or null when none is saved
+function nearestSpot(p, kind, pos){
+  if (!pos) return null; let best = null;
+  spotsOf(spotsFor(p), kind).forEach(s => { const d = dist(s.q, pos); if (!best || d < best.d) best = {label: s.label, d}; });
+  return best;
+}
+// a drop judged against the spots: neutral on a spot, red when farther than CFG.spots.near from every spot, the kind's colour
+// when no spots were saved for that pull
+function spotMark(p, kind, pos, n, t, what){
+  const K = CFG.spots.kinds[kind], s = nearestSpot(p, kind, pos), off = s && s.d > CFG.spots.near;
+  return {pos, n, t, color: !s ? K.color : off ? '#ff5a4a' : '#d8d2cf',
+    tip: `${n ? `<b style="color:${color(n)}">${esc(n)}</b> ` : ''}${esc(what)}${s ? `<br>${s.d.toFixed(1)} yd from spot ${esc(s.label)}${off ? ' (off its spot)' : ''}` : ''}`};
+}
+const spotKey = kind => !SPOTS.shown ? `<span>${keyDot(CFG.spots.kinds[kind].color)}Where ${esc(CFG.spots.kinds[kind].label)} was dropped</span>` : `<span>${keyDot('#d8d2cf')}On an assigned spot</span><span>${keyDot('#ff5a4a')}More than ${CFG.spots.near} yd from every spot</span>` +
+  `<span><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="${CFG.spots.kinds[kind].color}" stroke-width="1.6" stroke-dasharray="3 2"/></svg>Assigned spot (${CFG.spots.near} yd)</span>`;
+function fromMap(px, py){   // image pixel -> world [x, y] (toMap backwards)
+  const c = CFG.map.cal, r = (c.rot || 0) * Math.PI / 180, a = (px - c.center[0]) / c.ppy, b = (py - c.center[1]) / c.ppy;
+  const u = a * Math.cos(r) - b * Math.sin(r), v = a * Math.sin(r) + b * Math.cos(r);
+  return [Math.round((c.cx - v) * 10) / 10, Math.round((c.cy - u) * 10) / 10];
+}
+const editingSpots = () => !!(SPOTS.draft && isEditor());
+// [rings, labels]: the rings go under the drops and the labels over them (while editing, both on top so they can be grabbed)
+function spotRings(all, kind, edit){
+  const K = CFG.spots.kinds[kind], R = CFG.spots.near * CFG.map.cal.ppy, S = spotsOf(all, kind);
+  const pos = s => { const [x, y] = toMap(s.q); return `transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"`; };
+  return [S.map(s => { const sel = edit && s.k === SPOTS.sel;
+      return `<g class="spot${edit ? ' ed' : ''}${sel ? ' sel' : ''}" data-k="${esc(s.k)}" ${pos(s)}${edit ? '' : ` data-tip="${esc(`<b>${esc(K.label)} spot ${esc(s.label)}</b>`)}"`}>
+        <circle r="${R.toFixed(1)}" fill="${K.color}" fill-opacity="${sel ? .22 : .1}" stroke="${sel ? '#fff' : K.color}" stroke-width="${sel ? 2.2 : 1.6}" stroke-dasharray="5 4"/></g>`; }).join(''),
+    S.map(s => `<g ${pos(s)} pointer-events="none"><text text-anchor="middle" dy="0.35em" font-size="${(13 * MK).toFixed(1)}" font-weight="700" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">${esc(s.label)}</text></g>`).join('')];
+}
 
 // ---- map: a square crop of the room image. cal: world (cx, cy) sits at image pixel center; ppy pixels per yard; north up,
 // turned rot degrees. Positions come straight from the log, so marks land where the player stood. ----
@@ -245,8 +270,15 @@ const KEY_DOT = '<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" 
 const keyDot = c => `<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="${c}" stroke="#000"/></svg>`;
 const keyCross = c => `<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/></svg>`;
 function renderMap(list, all){
+  if (SPOTS.drag) return;   // mid-drag: the dragged spot is moved directly; the map redraws when it's let go
   const w = $('mapbox').clientWidth || 600; MK = Math.max(1, Math.min(2, 520 / w));
   const ov = OVERLAYS.find(o => o.id === st.ov);
+  // assigned spots for the overlay's mechanic: the newest pull's (one pull: that pull's), the ones in force now when there's
+  // no pull, the unsaved ones while an admin edits them (drawn on top then, so they can be grabbed)
+  const edit = editingSpots() && ov && ov.spots;
+  const spotSet = !ov || !ov.spots ? {} : edit ? SPOTS.draft : list.length ? spotsFor(list[list.length - 1]) : spotsNow(st.diff);
+  const [rings, labels] = ov && ov.spots ? spotRings(spotSet, ov.spots, edit) : ['', ''];
+  SPOTS.shown = !!labels;   // the overlay's key tells drops apart by spot only when there are spots
   let marks = '';
   if (ov) list.forEach(p => ov.get(p).forEach(m => { if (!m.pos) return; const [x, y] = toMap(m.pos);
     if (x < -20 || y < -20 || x > MAPW + 20 || y > MAPW + 20) return;
@@ -255,11 +287,93 @@ function renderMap(list, all){
     marks += m.mark === 'cross' ? cross(x, y, m.color || '#ff5a4a', tip) : dot(x, y, c, tip); }));
   // lots of marks (Overall, many pulls): smaller, see-through dots, so crowded spots read as density, not one solid blob
   const nMarks = (marks.match(/data-tip=/g) || []).length, dens = nMarks > 150 ? ' dense' : nMarks > 60 ? ' busy' : '';
-  $('mapsvg').innerHTML = `<svg class="${dens.trim()}" viewBox="0 0 ${MAPW} ${MAPW}" role="img" aria-label="${esc(CFG.name)} room"><image href="${CFG.map.src}" x="0" y="0" width="${MAPW}" height="${MAPW}"/>${marks}</svg>`;
+  $('mapsvg').innerHTML = `<svg class="${dens.trim()}${edit ? ' editing' : ''}" viewBox="0 0 ${MAPW} ${MAPW}" role="img" aria-label="${esc(CFG.name)} room"><image href="${CFG.map.src}" x="0" y="0" width="${MAPW}" height="${MAPW}"/>${edit ? marks + rings + labels : rings + marks + labels}</svg>`;
   $('tip').hidden = true;
   $('ovSeg').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ov === st.ov)));
   $('mapKey').innerHTML = `${ov ? ov.key() : ''}<span class="hint">Hover a mark for details</span>`;
+  renderSpotEd(ov);
 }
+
+// ---- Edit assigned spots (admin mode only, under the map, for an overlay with spots): click the map to add a spot of that
+// mechanic, drag one to move it, pick one to rename (its label) or remove it; Save sends every spot of this difficulty at once ----
+function renderSpotEd(ov){
+  const el = $('spotEd'); if (!el) return;
+  if (!CFG.spots || !isEditor() || !ov || !ov.spots){ el.innerHTML = ''; return; }
+  const K = CFG.spots.kinds[ov.spots], dn = DIFF[st.diff] || '';
+  if (SPOTS.draft && SPOTS.draftDiff !== st.diff){ SPOTS.draft = Object.assign({}, spotsNow(st.diff)); SPOTS.draftDiff = st.diff; SPOTS.sel = null; }
+  const det = el.querySelector('details.grped');
+  if (!det){
+    el.innerHTML = `<details class="grped spoted"><summary>Edit assigned spots</summary>
+      <p class="sphelp"></p>
+      <div class="gact spsel"></div>
+      <div class="gact"><button type="button" class="pri" data-a="save">Save</button><button type="button" data-a="undo">Undo changes</button><span class="gmsg"></span></div>
+      <div class="ghist"></div></details>`;
+    const d = el.querySelector('details');
+    d.addEventListener('toggle', () => {
+      if (d.open){ SPOTS.draft = Object.assign({}, spotsNow(st.diff)); SPOTS.draftDiff = st.diff; }
+      else { SPOTS.draft = null; }
+      SPOTS.sel = null; render(); });
+    d.querySelector('[data-a="undo"]').onclick = () => { SPOTS.draft = Object.assign({}, spotsNow(st.diff)); SPOTS.sel = null; spotMsg(''); render(); };
+    d.querySelector('[data-a="save"]').onclick = saveSpots;
+  }
+  const d = el.querySelector('details');
+  d.querySelector('.sphelp').innerHTML = `${esc(dn)} · <b style="color:${K.color}">${esc(K.label)}</b>: click the map to add a spot, drag a spot to move it, click one to rename or remove it. Save shares every ${esc(dn)} spot with everyone; they count for pulls that start after you save.`;
+  const sel = SPOTS.draft && SPOTS.sel && SPOTS.draft[SPOTS.sel] ? SPOTS.sel : null;
+  const box = d.querySelector('.spsel');
+  if (!sel) box.innerHTML = '';
+  else if (box.dataset.k !== sel || !box.querySelector('input')){
+    box.innerHTML = `<label>Spot <input type="text" maxlength="24" value="${esc(sel.slice(sel.indexOf(':') + 1))}" aria-label="Spot label" style="width:90px"></label><button type="button" data-a="rm">Remove</button>`;
+    const inp = box.querySelector('input');
+    inp.onchange = () => { const v = inp.value.trim(), cur = SPOTS.sel, nk = cur.split(':')[0] + ':' + v;
+      if (!v || /[<>"&]/.test(v)){ spotMsg('A label can\'t be empty or use < > " &.', true); inp.value = cur.slice(cur.indexOf(':') + 1); return; }
+      if (nk !== cur && SPOTS.draft[nk]){ spotMsg(`There's already a spot ${v}.`, true); inp.value = cur.slice(cur.indexOf(':') + 1); return; }
+      const q = SPOTS.draft[cur]; delete SPOTS.draft[cur]; SPOTS.draft[nk] = q; SPOTS.sel = nk; spotMsg(''); render(); };
+    box.querySelector('[data-a="rm"]').onclick = () => { delete SPOTS.draft[SPOTS.sel]; SPOTS.sel = null; render(); };
+  }
+  box.dataset.k = sel || '';
+  const fmt = c => new Date(c.at * 1000).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+  const mine = (SPOTS.changes || []).filter(c => !c.diffs || c.diffs.includes(st.diff)).slice(-4).reverse();
+  d.querySelector('.ghist').textContent = mine.length ? `Saved (newest first): ${mine.map(fmt).join(' · ')}.` : `No ${dn} spots saved yet.`;
+}
+const spotMsg = (t, bad) => { const m = document.querySelector('#spotEd .gmsg'); if (m){ m.textContent = t; m.classList.toggle('bad', !!bad); } };
+async function saveSpots(){
+  spotMsg('Saving…');
+  try {
+    const r = await fetch(`api/groups/${TEAM.id}/${TIER}/${CFG.slug}/${CFG.spots.set}`, {method: 'PUT',
+      headers: {'Authorization': 'Bearer ' + adminKey(), 'Content-Type': 'application/json'},
+      body: JSON.stringify({groups: SPOTS.draft, from: 'now', diffs: [st.diff]})});
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401){ spotMsg('The server didn\'t accept the admin key: sign out (title row) and save it again.', true); return; }
+    if (!r.ok || !j.ok){ spotMsg(j.error || `Couldn't save (${r.status}).`, true); return; }
+    SPOTS.changes = j.changes.slice().sort((a, b) => a.at - b.at); SPOTS.raw = JSON.stringify(j.changes);
+    spotMsg('Saved.'); render();
+  } catch (e) { spotMsg('Couldn\'t reach the server.', true); }
+}
+(() => {   // the map's pointer handling while editing spots (mouse and touch)
+  const box = $('mapbox');
+  const svgPt = e => { const s = box.querySelector('svg'), m = s.getScreenCTM(); if (!m) return null;
+    const p = s.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; const q = p.matrixTransform(m.inverse()); return [q.x, q.y]; };
+  box.addEventListener('pointerdown', e => {
+    const ov = OVERLAYS.find(o => o.id === st.ov); if (!editingSpots() || !ov || !ov.spots || e.button > 0) return;
+    const pt = svgPt(e); if (!pt) return;
+    e.preventDefault();
+    const g = e.target.closest('g.spot');
+    if (g) SPOTS.sel = g.dataset.k;
+    else {   // a new spot where the map was clicked, labelled with the next free number
+      const used = new Set(spotsOf(SPOTS.draft, ov.spots).map(s => s.label)); let n = 1; while (used.has(String(n))) n++;
+      SPOTS.sel = ov.spots + ':' + n; SPOTS.draft[SPOTS.sel] = fromMap(pt[0], pt[1]);
+    }
+    render();
+    const g2 = box.querySelector(`g.spot[data-k="${CSS.escape(SPOTS.sel)}"]`);
+    SPOTS.drag = {k: SPOTS.sel, g: g2, id: e.pointerId}; box.setPointerCapture(e.pointerId);
+  });
+  box.addEventListener('pointermove', e => { const D = SPOTS.drag; if (!D || e.pointerId !== D.id) return;
+    const pt = svgPt(e); if (!pt) return;
+    const x = Math.max(0, Math.min(MAPW, pt[0])), y = Math.max(0, Math.min(MAPW, pt[1]));
+    SPOTS.draft[D.k] = fromMap(x, y); if (D.g) D.g.setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)})`); });
+  const end = e => { const D = SPOTS.drag; if (!D || e.pointerId !== D.id) return; SPOTS.drag = null; render(); };
+  box.addEventListener('pointerup', end); box.addEventListener('pointercancel', end);
+})();
 (() => {   // map tooltips: hover (or tap) a mark
   const box = $('mapbox'), tip = $('tip');
   const show = e => { const g = e.target.closest('[data-tip]'); if (!g){ tip.hidden = true; return; }
@@ -296,9 +410,6 @@ function renderTimeline(ns){
     if (b){ st.diff = +b.dataset.d; SCOPES.forEach(k => { st.scope[k] = b.dataset.k; }); }   // clicking a pull also switches to its difficulty
     render(); });
 }
-
-// ---- bottom panels: shared.js draws them with this page's helpers ----
-const H = {pname, order: byRoster, healer: n => role(n) === 'Healer', people, color, spell: n => ABILITY[n]};
 
 // ---- ability tooltips: ability names link to Wowhead, whose tooltip script shows the in-game ability text on hover ----
 const ABILITY = CFG.abilities || {};
@@ -361,10 +472,8 @@ function render(){
   renderTimeline(ns);
   renderMap(L.map, L.map.length > 1);
   CFG.modules.forEach(m => renderModule(m, L[m.id]));
-  drawAvoid($('avoidT'), L.avoid.flatMap(avoidHits), CFG.avoid.names, CFG.avoid.short || {}, H);
-  drawDamage($('dmg'), L.dmg, H); drawHealing($('heal'), L.heal, H); drawDispels($('disp'), L.disp, H); drawDeaths($('deaths'), L.deaths, H);
   document.querySelectorAll('.panel').forEach(linkify);
-  sortTables(); sortStd(); setLiveStatus();
+  sortTables(); setLiveStatus();
 }
 
 // ---- last-updated bar: this difficulty's pulls in view, the latest one, and when the uploader last sent data ----
