@@ -16,7 +16,7 @@
 // Reworked 2026-11-11 for Mythic (Taylor): Orbs, Guillotines, Ghosts and Dreadmarch overlays, each with a button per set under it.
 // Spell data (wago.tools, game build 12.1.7): Sever 1299684 = 60-degree cone, 35 yd; Blighted Sever 1307292 and Soul Sever 1286620 =
 // 60 degrees, 45 yd. Guillotine 1283594 / Grim Guillotine 1299296 split among players within 9 yd (Mythic: at least 5 players).
-// Volatile Venom 1282419 (green carrier) hurts players within 5 yd; Mutagenic Venom 1310498 (purple carrier, Mythic) within 8 yd and
+// Volatile Venom 1282419 (green carrier) hurts players within 5 yd; Mutagenic Venom 1310498 (purple carrier, Mythic) within 6 yd (hotfix Oct 13, 2026: was 8) and
 // explodes nearby globules (20 Venom Ruptures each). Mythic ghosts refixate every 15 s (1309403); two touching = Malevolent Resonance.
 const contacts = (p, ability, gap = 2) => { const last = {}, out = [];
   hitsOf(p, ability).forEach(h => { if (last[h[1]] == null || h[0] - last[h[1]] > gap) out.push(h); last[h[1]] = h[0]; }); return out; };
@@ -38,7 +38,7 @@ const posFromTrail = (tr, t) => { if (!tr || !tr[3].length) return null; let b =
 // Blighted Sever) destroys the globules in its cone, one Venom Rupture stack each (p.stackev: the exact count the log shows).
 // Explosion: a purple globule touching another globule, or a purple carrier walking into one.
 const ORB = {cv: {label: 'Green orb', name: 'Coalesced Venom', color: '#7fd36b', r: 3, carrier: 'Volatile Venom', cr: 5, pick: 'green'},
-             vm: {label: 'Purple orb', name: 'Virulent Mutation', color: '#c77dff', r: 8, carrier: 'Mutagenic Venom', cr: 8, pick: 'purple'}};
+             vm: {label: 'Purple orb', name: 'Virulent Mutation', color: '#c77dff', r: 6, carrier: 'Mutagenic Venom', cr: 6, pick: 'purple'}};   // 6 yd since the Oct 13 hotfix (was 8)
 const FRONTAL = {'Sever': {len: 35, deg: 60}, 'Blighted Sever': {len: 45, deg: 60}, 'Soul Sever': {len: 45, deg: 60}};
 const FRONT_MAX = {cv: 3, vm: 2};   // a frontal hitting more than this many green / purple orbs is red
 const PICKERS = {'Shènròn': 'green', 'Roychi': 'green', 'Zynzii': 'green', 'Snakespeare': 'green', 'Skwup': 'green', 'Kiirelan': 'green',
@@ -81,7 +81,7 @@ function orbSim(p){
       if (!c.pos0) return;
       const o = alive.filter(a => a.kind === c.kind && dist(a.pos, c.pos0) < ORB[c.kind].r + 4).sort((a, b) => dist(a.pos, c.pos0) - dist(b.pos, c.pos0))[0];
       if (o){ o.pickedBy = c.n; gone(o, c.on, 'picked up'); }
-      if (c.kind === 'vm'){   // a purple carrier walking within 8 yd of a globule explodes it
+      if (c.kind === 'vm'){   // a purple carrier walking within 6 yd of a globule explodes it
         const tr = trailOf(p, ORB.vm.carrier, c.n, c.on);
         (tr ? tr[3] : []).forEach(q => { const hit = alive.filter(a => a !== o && a.t < q[0] && dist(a.pos, [q[1], q[2]]) < ORB.vm.cr + ORB[a.kind].r);
           if (hit.length) boom(q[0], hit[0].pos, hit, [c.n], 'carrier'); });
@@ -391,7 +391,7 @@ const CFG = {
     'Volatile Venom': 1282419, 'Coalesced Venom': 1282403, 'Venom Rupture': 1299838, 'Sever': 1299680, 'Soul Sever': 1286620, 'Blighted Sever': 1307279, 'Venomfang': 1282287,
     'Spiteful Soulcoiler': 1286441, 'Unnerving Fixation': 1285911, 'Deadly Venom': 1297338, 'Toxic Deluge': 1299960,
     'Virulent Mutation': 1310544, 'Mutagenic Venom': 1310498, 'Malevolent Resonance': 1310732},
-  how: "Built from the Encounter Journal and spell data (wago.tools), Method's Heroic and Mythic guides, and Taylor's logs (Heroic only so far: the purple orbs, Mutagenic Venom, Malevolent Resonance and refixating ghosts are Mythic-only and not yet seen in a log). Orbs: every globule is placed where the log first shows it; a carrier's orb is the one that appears when their Volatile / Mutagenic Venom ends (initial = who carried it). Picked up = the nearest orb of that colour to where they stood. A frontal is drawn from Zul'jan toward the players it hit (35 yd Sever, 45 yd Blighted Sever, 60 degrees); the orbs inside it count as hit, and the log's Venom Rupture stacks give the exact number destroyed (shown on hover). Green orbs are drawn 3 yd across in radius (measured from pickups); purple 8 yd (their carrier's explosion range; the game files don't give the orb's own size, to be measured on the first Mythic pulls). An explosion = a purple orb overlapping another orb, a purple carrier within 8 yd of one, or 15+ Venom Rupture stacks at once with no frontal. Guillotine soakers: everyone's position when the axe landed. Ghost trails: the fixated player's path while fixated. Dreadmarch: the possessed player's path, with the CC players put on them. The room image is from raidstrats.gg.",
+  how: "Built from the Encounter Journal and spell data (wago.tools), Method's Heroic and Mythic guides, and Taylor's logs (Heroic only so far: the purple orbs, Mutagenic Venom, Malevolent Resonance and refixating ghosts are Mythic-only and not yet seen in a log). Orbs: every globule is placed where the log first shows it; a carrier's orb is the one that appears when their Volatile / Mutagenic Venom ends (initial = who carried it). Picked up = the nearest orb of that colour to where they stood. A frontal is drawn from Zul'jan toward the players it hit (35 yd Sever, 45 yd Blighted Sever, 60 degrees); the orbs inside it count as hit, and the log's Venom Rupture stacks give the exact number destroyed (shown on hover). Green orbs are drawn 3 yd across in radius (measured from pickups); purple 6 yd (Virulent Mutation and Mutagenic Venom radius, Blizzard hotfix Oct 13, 2026; was 8). An explosion = a purple orb overlapping another orb, a purple carrier within 6 yd of one, or 15+ Venom Rupture stacks at once with no frontal. Guillotine soakers: everyone's position when the axe landed. Ghost trails: the fixated player's path while fixated. Dreadmarch: the possessed player's path, with the CC players put on them. The room image is from raidstrats.gg.",
 };
 </script>
 <script src="boss.js"></script>
