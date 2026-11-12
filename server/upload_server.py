@@ -36,13 +36,16 @@ SEGMENT = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$')     # no leading do
 EDITOR_FILE = os.environ.get('TAYNALYSIS_EDITOR_FILE', '/etc/taynalysis/editor-key')
 # boss page -> group sets it has -> what a player's value may be
 KICK_SPOT = re.compile(r'^(ml|fm|mr|rl|rr|backup)[1-9]$')        # kick order: quadrant + place in it (melee left 1st = ml1)
-SPOT_KEY = re.compile(r'^(cv|vm):[^<>"&]{1,24}$')                 # an assigned spot: kind (cv / vm) + its label (cv:1, vm:Left)
+SPOT_KEY = re.compile(r'^(s[0-9]{1,2}:)?(cv|vm):[^<>"&]{1,24}$')   # an assigned spot: [orb set:] kind (cv / vm) + label (s2:cv:1)
 is_coord = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) < 100000
 # each check gets (key, value); keys are player names except for spots
 GROUP_SETS = {'twin-fangs': {'feast': lambda k, v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 3,
                              'kicks': lambda k, v: isinstance(v, str) and bool(KICK_SPOT.match(v))},
               # Coiled Altar: where Coalesced Venom (cv) / Virulent Mutation (vm) carriers drop them: {"cv:1": [world x, world y]}
-              'coiled-altar': {'spots': lambda k, v: bool(SPOT_KEY.match(k)) and isinstance(v, list) and len(v) == 2 and all(is_coord(x) for x in v)}}
+              'coiled-altar': {'spots': lambda k, v: bool(SPOT_KEY.match(k)) and isinstance(v, list) and len(v) == 2 and all(is_coord(x) for x in v),
+                               # who may pick up which globules: {"Player": "green" | "purple" | "both"}
+                               'pickers': lambda k, v: v in ('green', 'purple', 'both')}}
+GROUP_MAX = {'spots': 300}   # most entries in one save (default 40)
 SLUG = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 GROUP_LOCK = threading.Lock()
 PULL_KEY = re.compile(r'^[A-Za-z0-9_.-]{1,80}#[0-9]{1,4}$')        # a pull: its log's name and its number in that log
@@ -134,14 +137,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(503, {'ok': False, 'error': 'group saving is off (no editor key on the server)'})
         if not self.authorized(EDITOR_KEY):
             return self.reply(401, {'ok': False, 'error': 'bad editor key'})
-        data = self.read_body(16384)
+        data = self.read_body(65536)
         if data is None:
             return
         try:
             body = json.loads(data)
             groups, mode = body['groups'], body.get('from', 'now')   # only "now": nothing may rewrite earlier pulls' groups
             diffs = body.get('diffs')                                  # optional: the difficulties this change is for
-            ok = (mode == 'now' and isinstance(groups, dict) and len(groups) <= 40 and
+            ok = (mode == 'now' and isinstance(groups, dict) and len(groups) <= GROUP_MAX.get(parts[3], 40) and
                   all(isinstance(k, str) and 0 < len(k) <= 40 and not any(ch in k for ch in '<>"&') and valid(k, v)
                       for k, v in groups.items()) and
                   (diffs is None or (isinstance(diffs, list) and 0 < len(diffs) <= 4 and

@@ -873,6 +873,7 @@ class KithixParser:
         r = Parser.split(rest)
         if ev == 'UNIT_DIED':
             if len(r) > 5:
+                if r[5] in c['orbSeen'] and c['orbSeen'][r[5]][5] is None: c['orbSeen'][r[5]][5] = t
                 if r[5].startswith('Player-'): c['died'].append((t, r[5]))
                 elif r[5].startswith('Creature-') and r[6].strip('"') in self.ADDS: c['npcDied'].append((t, r[5].rsplit('-', 1)[-1], r[6].strip('"')))
             return
@@ -916,6 +917,21 @@ class KithixParser:
         # ---- an egg that finished hatching (killing it in time stops the cast), and who dispelled each Overwhelming Fear
         if sname == 'Hatch' and ev == 'SPELL_CAST_SUCCESS':
             c['hatched'].append(t); return
+        # ---- frontals (cfg cones) and other NPC casts kept with the caster's spot (cfg castpos): [time, name, x, y, facing, unit id]
+        if ev == 'SPELL_CAST_SUCCESS' and hostile_src and len(r) > k + 17 and r[k] == src:
+            for grp, lst in (('cones', 'cones'), ('castpos', 'castpos')):
+                if sname in self.cfg.get(grp, ()):
+                    try: c[lst].append((t, sname, round(float(r[k + 14]), 2), round(float(r[k + 15]), 2), round(float(r[k + 17]), 3), src.rsplit('-', 1)[-1]))
+                    except ValueError: pass
+        # a globule's own aura going away = it's gone
+        if ev == 'SPELL_AURA_REMOVED' and src == dst and dst in c['orbSeen'] and c['orbSeen'][dst][5] is None:
+            c['orbSeen'][dst][5] = t
+        # players' debuffs and casts on a possessed player (cfg ccOn): [time, by, on, spell, 'aura' / 'cast']
+        cc_on = self.cfg.get('ccOn')
+        if cc_on and dst.startswith('Player-') and (cc_on, dst) in c['open'] and ev in ('SPELL_AURA_APPLIED', 'SPELL_CAST_SUCCESS', 'SPELL_INTERRUPT'):
+            o = self.owner(src)
+            if o and o != dst and (ev != 'SPELL_AURA_APPLIED' or r[-1] == 'DEBUFF'):
+                c['ccs'].append((t, o, dst, sname, 'aura' if ev == 'SPELL_AURA_APPLIED' else 'cast'))
         # ---- things that appear on the ground (cfg drops): an NPC's own cast, logged with where it stands: [time, name, [x, y]]
         if ev == 'SPELL_CAST_SUCCESS' and hostile_src and sname in self.cfg.get('drops', ()) and len(r) > k + 15 and r[k] == src:
             try: c['drops'].append((t, sname, [round(float(r[k + 14]), 2), round(float(r[k + 15]), 2)]))
@@ -1105,8 +1121,17 @@ FAIL_BOSSES = [
                 'Soul Sever', 'Blighted Sever', 'Venomfang'},
          kicks={'Wail of Terror', 'Eternal Nightfall'},
          auras={'Dreadmarch', 'Gravebound', 'Gloombomb', 'Volatile Venom', 'Sever', 'Soul Sever', 'Blighted Sever', '#1283485',
-                '#1307425', '#1299266', '#1307652', 'Venomfang', 'Wail of Terror', 'Venom Rupture', 'Virulent Mutation'},
+                '#1307425', '#1299266', '#1307652', 'Venomfang', 'Wail of Terror', 'Venom Rupture', 'Virulent Mutation',
+                'Mutagenic Venom', 'Malevolent Resonance'},
          drops={'Coalesced Venom', 'Virulent Mutation'},   # the globule's stalker casts it where it appears (exact spot)
+         orbNpc={'268042': 'cv', '271982': 'vm'},         # globules: Coalesced Venom Stalker (green), Virulent Mutation (purple, Mythic)
+         trails={'Volatile Venom', 'Mutagenic Venom', 'Dreadmarch', 'Unnerving Fixation'},   # carriers, possessed, fixated
+         cones={'Sever', 'Blighted Sever', 'Soul Sever'},  # frontals: where the caster stood and faced when it landed
+         stackev={'Venom Rupture'},                        # one stack per globule destroyed / exploded
+         ccOn='Dreadmarch',                                # players' debuffs and casts on possessed players (CC)
+         castpos={'Malevolent Resonance', 'Unnerving Fixation'},   # NPC casts kept with where the caster stood
+         ntrack={'261218'},                                # Manifestation of Dread: wherever the log places it
+         snaps={'#1283594', '#1299296'},                   # Guillotine / Grim Guillotine landing: every player's spot then
          npc={'Consumed by Resentment', 'Veil of Twilight', 'Soulbinding', 'Soul Sever', 'Blighted Sever'},   # Severs: on the ghosts
          fixate={'Unnerving Fixation'},   # which Manifestation of Dread chases which player
          hits={'Axegrinder', 'Noxious Ground', 'Defiled Ground', "Widow's Kiss", "Death's Embrace", 'Gloombomb', 'Volatile Venom',
@@ -1189,7 +1214,7 @@ class FailParser:
                             dur=0.0, kill=False, ended=False, lastT=0.0, hp={}, track={}, specGuid={}, died=[], npcDied=[],
                             lasthit={}, casts={}, ctgt={}, auras={}, open={}, hits=[], npc=[], npcOpen={}, seen={},
                             kicks=[], kickOpen={}, pulses={}, dispels=[], npos={}, spawns=[], spawnG={}, diedG=set(), btrack={},
-                            fixate=[], fixOpen={}, drops=[])
+                            fixate=[], fixOpen={}, drops=[], orbs=[], orbSeen={}, cones=[], stackev=[], ccs=[], castpos=[], ntrack={})
             return
         if c is None: return
         t = Parser.ts(l) - c['t0']; c['lastT'] = t
@@ -1205,6 +1230,7 @@ class FailParser:
         r = Parser.split(rest)
         if ev == 'UNIT_DIED':
             if len(r) > 5:
+                if r[5] in c['orbSeen'] and c['orbSeen'][r[5]][5] is None: c['orbSeen'][r[5]][5] = t
                 if r[5].startswith('Player-'): c['died'].append((t, r[5]))
                 elif r[5].startswith(('Creature-', 'Vehicle-')) and r[6].strip('"') in self.cfg['adds'] and r[5] not in c['diedG']:
                     c['diedG'].add(r[5])      # the log can say a unit died twice
@@ -1239,6 +1265,13 @@ class FailParser:
                 if info.startswith('Player-'): Parser.add_pt(c['track'].setdefault(info, []), t, x, y)
                 elif info.startswith(('Creature-', 'Vehicle-')) and not own.startswith('Player-'):
                     c['npos'][info] = (t, x, y)
+                    nid = info.split('-')[5]
+                    kind = self.cfg.get('orbNpc', {}).get(nid)
+                    if kind and info not in c['orbSeen']:   # a globule: [first seen, kind, unit id, x, y, gone]
+                        c['orbSeen'][info] = row = [t, kind, info.rsplit('-', 1)[-1], round(x, 2), round(y, 2), None]; c['orbs'].append(row)
+                    if nid in self.cfg.get('ntrack', ()):
+                        tr = c['ntrack'].setdefault(info.rsplit('-', 1)[-1], [])
+                        if not tr or t - tr[-1][0] >= 0.5: tr.append((t, x, y))
                     b = self.cfg['boss'].get(info.split('-')[5])
                     if b:
                         hp, mx = float(r[k + 2]), float(r[k + 3])
@@ -1246,6 +1279,21 @@ class FailParser:
                         bt = c['btrack'].setdefault(b, [])
                         if not bt or t - bt[-1][0] >= 1.0: bt.append((t, x, y))
             except (ValueError, IndexError): pass
+        # ---- frontals (cfg cones) and other NPC casts kept with the caster's spot (cfg castpos): [time, name, x, y, facing, unit id]
+        if ev == 'SPELL_CAST_SUCCESS' and hostile_src and len(r) > k + 17 and r[k] == src:
+            for grp, lst in (('cones', 'cones'), ('castpos', 'castpos')):
+                if sname in self.cfg.get(grp, ()):
+                    try: c[lst].append((t, sname, round(float(r[k + 14]), 2), round(float(r[k + 15]), 2), round(float(r[k + 17]), 3), src.rsplit('-', 1)[-1]))
+                    except ValueError: pass
+        # a globule's own aura going away = it's gone
+        if ev == 'SPELL_AURA_REMOVED' and src == dst and dst in c['orbSeen'] and c['orbSeen'][dst][5] is None:
+            c['orbSeen'][dst][5] = t
+        # players' debuffs and casts on a possessed player (cfg ccOn): [time, by, on, spell, 'aura' / 'cast']
+        cc_on = self.cfg.get('ccOn')
+        if cc_on and dst.startswith('Player-') and (cc_on, dst) in c['open'] and ev in ('SPELL_AURA_APPLIED', 'SPELL_CAST_SUCCESS', 'SPELL_INTERRUPT'):
+            o = self.owner(src)
+            if o and o != dst and (ev != 'SPELL_AURA_APPLIED' or r[-1] == 'DEBUFF'):
+                c['ccs'].append((t, o, dst, sname, 'aura' if ev == 'SPELL_AURA_APPLIED' else 'cast'))
         # ---- things that appear on the ground (cfg drops): an NPC's own cast, logged with where it stands: [time, name, [x, y]]
         if ev == 'SPELL_CAST_SUCCESS' and hostile_src and sname in self.cfg.get('drops', ()) and len(r) > k + 15 and r[k] == src:
             try: c['drops'].append((t, sname, [round(float(r[k + 14]), 2), round(float(r[k + 15]), 2)]))
@@ -1297,6 +1345,8 @@ class FailParser:
                     elif ev == 'SPELL_AURA_REMOVED' and key in c['npcOpen']:
                         c['npcOpen'].pop(key)[4] = t
                 return
+            if sname in self.cfg.get('stackev', ()) and ev in ('SPELL_AURA_APPLIED', 'SPELL_AURA_APPLIED_DOSE') and dst.startswith('Player-'):
+                c['stackev'].append((t, sname, dst))
             if ev == 'SPELL_AURA_APPLIED' and ('aura:' + sname) in self.cfg['pulses']:
                 self.pulse(c, 'aura:' + sname, t, dst, 0.0)
             name = self.want('auras', sname, sid)
@@ -1360,6 +1410,56 @@ class FailParser:
         self.pulls.append(c); self.finished += 1
         self.cur = None
 
+    def extras(self, p, nm, stop):
+        """Optional per-boss data (Coiled Altar): globules, frontals, trails, stack jumps, CC on possessed players."""
+        r2 = lambda v: round(v, 2) if v is not None else None
+        out = {}
+        if p['orbs']: out['orbs'] = [[r2(a), k, i, x, y, r2(g)] for a, k, i, x, y, g in p['orbs']]   # [seen, kind, unit id, x, y, gone]
+        if p['cones']: out['cones'] = [[r2(t), s, x, y, f, i] for t, s, x, y, f, i in p['cones']]    # [time, name, x, y, facing, unit id]
+        if p['castpos']: out['castpos'] = [[r2(t), s, x, y, f, i] for t, s, x, y, f, i in p['castpos']]
+        if p['ntrack']: out['ntrack'] = {i: [[round(t, 1), round(x, 1), round(y, 1)] for t, x, y in v] for i, v in p['ntrack'].items()}
+        if p['ccs']: out['ccs'] = [[r2(t), nm(a), nm(b), s, how] for t, a, b, s, how in p['ccs']]
+        if p['stackev']:   # stacks gained at once: [time, name, most stacks any one player gained within 0.3 s]
+            jumps = {}
+            for t, s, g in p['stackev']:
+                lst = jumps.setdefault((s, g), [])
+                if lst and t - lst[-1][0] <= 0.3: lst[-1][1] += 1
+                else: lst.append([t, 1])
+            merged = []
+            for (s, g), lst in jumps.items():
+                for t, n in lst:
+                    m = next((x for x in merged if x[1] == s and abs(x[0] - t) <= 0.3), None)
+                    if m: m[2] = max(m[2], n)
+                    else: merged.append([t, s, n])
+            out['stackev'] = sorted([[r2(t), s, n] for t, s, n in merged])
+        snaps = self.cfg.get('snaps', ())
+        if snaps:   # [time, hit key, {player: [x, y]}]: where everyone stood when one of these first hit (hits under 2 s apart = one)
+            out_s = []
+            for t, g, h, a, q in sorted(p['hits']):
+                if h in snaps and not any(x[1] == h and t - x[0] < 2 for x in out_s):
+                    out_s.append([t, h, {}])
+            for row in out_s:
+                for g, tr in p['track'].items():
+                    q = Parser.pos_at(tr, row[0])
+                    if q: row[2][nm(g)] = [round(q[0], 1), round(q[1], 1)]   # pos_at: only within 1 s of a logged spot
+                row[0] = round(row[0], 2)
+            if out_s: out['snaps'] = out_s
+        names = self.cfg.get('trails', ())
+        if names:   # [player, on, off, [[t, x, y], ...]] for each debuff in cfg trails (positions while it was up)
+            rows = [(a[0], a[1], a[2], a[3]) for v in p['auras'].values() for a in v if a[0] in names] + \
+                   [(a[0], a[1], a[2], a[3]) for a in p['open'].values() if a[0] in names]
+            if 'Unnerving Fixation' in names: rows += [('Unnerving Fixation', g, on, off) for g, on, off, i in p['fixate']]
+            tr = {}
+            for name, g, on, off in rows:
+                end = off if off is not None else stop
+                pts, last = [], None
+                for q in p['track'].get(g, []):
+                    if q[0] < on - 0.3 or q[0] > end + 0.3: continue
+                    if last is None or q[0] - last >= 0.25: pts.append([round(q[0], 1), round(q[1], 1), round(q[2], 1)]); last = q[0]
+                tr.setdefault(name, []).append([nm(g), r2(on), r2(off), pts])
+            if tr: out['trails'] = {k: sorted(v, key=lambda x: x[1]) for k, v in tr.items()}
+        return out
+
     def build(self, log_name):
         nm = lambda g: self.names.get(g, g)
         pulls = self.pulls + ([self.cur] if self.cur else [])
@@ -1402,6 +1502,7 @@ class FailParser:
                         'spawns': [[round(t, 2), s, i] for t, s, i in p['spawns']],
                         'fixate': [[nm(g), round(on, 2), r2(off), i] for g, on, off, i in p['fixate']],   # [player, on, off, add's unit id]
                         **({'drops': [[round(t, 2), s, q] for t, s, q in p['drops']]} if p['drops'] else {}),   # [time, name, [x, y]]
+                        **self.extras(p, nm, stop),
                         # [time it died (or was last seen), unit id, name, where, 'died' / 'gone' (never died: reached its goal or still up)]
                         'adds': [[round(t, 2), i, s, q, how] for t, i, s, q, how in adds],
                         'btrack': {b: [[round(t, 1), round(x, 1), round(y, 1)] for t, x, y in v] for b, v in p['btrack'].items()},

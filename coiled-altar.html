@@ -13,28 +13,156 @@
 <script src="shared.js"></script>
 <script>
 // The page is drawn by boss.js from this config (see the top of boss.js for what each part means).
+// Reworked 2026-11-11 for Mythic (Taylor): Orbs, Guillotines, Ghosts and Dreadmarch overlays, each with a button per set under it.
+// Spell data (wago.tools, game build 12.1.7): Sever 1299684 = 60-degree cone, 35 yd; Blighted Sever 1307292 and Soul Sever 1286620 =
+// 60 degrees, 45 yd. Guillotine 1283594 / Grim Guillotine 1299296 split among players within 9 yd (Mythic: at least 5 players).
+// Volatile Venom 1282419 (green carrier) hurts players within 5 yd; Mutagenic Venom 1310498 (purple carrier, Mythic) within 8 yd and
+// explodes nearby globules (20 Venom Ruptures each). Mythic ghosts refixate every 15 s (1309403); two touching = Malevolent Resonance.
 const contacts = (p, ability, gap = 2) => { const last = {}, out = [];
   hitsOf(p, ability).forEach(h => { if (last[h[1]] == null || h[0] - last[h[1]] > gap) out.push(h); last[h[1]] = h[0]; }); return out; };
-// Coalesced Venom: a carrier's Volatile Venom ending drops one where they stand; the globule's stalker logs that exact spot the
-// same moment (p.drops, from 2026-11-11 on; older nights use the carrier's last logged position). Virulent Mutation (Mythic): a
-// carried one drops a new one when it runs out. Both judged against the assigned spots (Edit assigned spots under the map)
-const DROP_OF = {cv: ['Volatile Venom', 'Coalesced Venom'], vm: ['Virulent Mutation', 'Virulent Mutation']};
-const dropsOf = (p, kind) => { const [aura, drop] = DROP_OF[kind], spots = (p.drops || []).filter(d => d[1] === drop), used = new Set();
-  const out = auras(p, aura).filter(a => a[2] != null).map(a => { const d = spots.find(d => !used.has(d) && Math.abs(d[0] - a[2]) < 0.3);
-    if (d) used.add(d); return {n: a[0], t: a[2], pos: d ? d[2] : a[6]}; }).filter(x => x.pos);
-  // Virulent Mutation: if the carried debuff is named differently in the log, its drops still show (no carrier)
-  return kind === 'vm' && !auras(p, aura).length ? spots.map(d => ({n: null, t: d[0], pos: d[2]})) : out; };
-const dropOverlay = (id, kind, diffs) => ({id, label: CFG_KINDS[kind].label, diffs, spots: kind,
-  get: p => dropsOf(p, kind).map(x => spotMark(p, kind, x.pos, x.n, x.t, `dropped ${CFG_KINDS[kind].label} here`)),
-  key: () => spotKey(kind)});
-const CFG_KINDS = {cv: {label: 'Coalesced Venom', color: '#7fd36b'}, vm: {label: 'Virulent Mutation', color: '#c77dff'}};
 const severs = p => ['Sever', 'Soul Sever', 'Blighted Sever'].flatMap(s => contacts(p, s, 8).filter(h => !isTankIn(p, h[1])).map(h => ({t: h[0], n: h[1], s})));   // the DoT ticks count once
 const fangs = p => auras(p, 'Venomfang').map(a => ({n: a[0], t: a[1], s: (a[2] != null ? a[2] : p.dur) - a[1],
   by: (p.dispels.find(d => d[2] === a[0] && d[3] === 'Venomfang' && Math.abs(d[0] - (a[2] || 0)) < 0.4) || [])[1] || null}));
-// Dreadmarch: Malacrass's cast possesses several players; one that doesn't follow a cast is a Manifestation of Dread reaching
-// the player it fixated (Heroic+)
+const clipped = p => hitsOf(p, 'Gloombomb').filter(h => !hadAura(p, h[1], 'Gloombomb', h[0], 1));
+const initial = n => n ? [...n][0].toUpperCase() : '';
+const nameTip = n => `<b style="color:${color(n)}">${esc(n)}</b>`;
+const setsOf = (list, fn, label) => { const ks = new Set(); list.forEach(p => fn(p).forEach(k => ks.add(k)));
+  return [...ks].sort((a, b) => a - b).map(k => ({k, label: label(k)})); };
+const trailOf = (p, aura, n, on) => ((p.trails || {})[aura] || []).find(r => r[0] === n && Math.abs(r[1] - on) < 0.5);
+const posFromTrail = (tr, t) => { if (!tr || !tr[3].length) return null; let b = tr[3][0]; tr[3].forEach(q => { if (Math.abs(q[0] - t) < Math.abs(b[0] - t)) b = q; }); return Math.abs(b[0] - t) < 2 ? [b[1], b[2]] : null; };
+
+// ======== Orbs: Coalesced Venom (green) and Virulent Mutation (purple, Mythic) ========
+// p.orbs [seen, kind, unit id, x, y, gone]: every globule where it appeared (from 2026-11-11 on; older nights: p.drops, green only).
+// A set = the orbs and frontals from one Toxic Deluge to the next. Carriers: Volatile Venom (green) / Mutagenic Venom (purple):
+// picking one up = the nearest globule of that colour to where they stood; it drops where the debuff ends. A frontal (Sever /
+// Blighted Sever) destroys the globules in its cone, one Venom Rupture stack each (p.stackev: the exact count the log shows).
+// Explosion: a purple globule touching another globule, or a purple carrier walking into one.
+const ORB = {cv: {label: 'Green orb', name: 'Coalesced Venom', color: '#7fd36b', r: 3, carrier: 'Volatile Venom', cr: 5, pick: 'green'},
+             vm: {label: 'Purple orb', name: 'Virulent Mutation', color: '#c77dff', r: 8, carrier: 'Mutagenic Venom', cr: 8, pick: 'purple'}};
+const FRONTAL = {'Sever': {len: 35, deg: 60}, 'Blighted Sever': {len: 45, deg: 60}, 'Soul Sever': {len: 45, deg: 60}};
+const FRONT_MAX = {cv: 3, vm: 2};   // a frontal hitting more than this many green / purple orbs is red
+const PICKERS = {'Shènròn': 'green', 'Roychi': 'green', 'Zynzii': 'green', 'Snakespeare': 'green', 'Skwup': 'green', 'Kiirelan': 'green',
+  'Daragnos': 'green', 'Monostereo': 'green', 'Integralgrip': 'purple', 'Phurry': 'purple', 'Spellrift': 'purple', 'Aktapewpew': 'purple'};
+const pickersFor = p => groupsAt(GROUPS.pickers, pullUtc(p), p.diff) || PICKERS;
+// the green / purple lists are the Mythic plan: other difficulties aren't judged
+const mayPick = (p, n, kind) => { if (p.diff !== 16) return true; const v = pickersFor(p)[n]; return v === ORB[kind].pick || v === 'both'; };
+const angDiff = (a, b) => Math.abs(((a - b + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
+// where a frontal pointed: from the caster to the players it hit (the tank), else the caster's logged facing
+function frontalOf(p, c){
+  const [t, name, x, y, f] = c, hit = hitsOf(p, name).filter(h => Math.abs(h[0] - t) < 0.6 && h[4]);
+  const dir = hit.length ? Math.atan2(hit.reduce((a, h) => a + h[4][1], 0) / hit.length - y, hit.reduce((a, h) => a + h[4][0], 0) / hit.length - x) : f;
+  const jump = (p.stackev || []).find(s => s[1] === 'Venom Rupture' && Math.abs(s[0] - t) < 0.4);
+  return Object.assign({t, name, pos: [x, y], dir, log: jump ? jump[2] : 0, tanks: [...new Set(hit.map(h => h[1]))]}, FRONTAL[name]);
+}
+function orbSim(p){
+  if (p._orb) return p._orb;
+  const deluges = castsOf(p, 'Toxic Deluge'), setAt = t => Math.max(1, deluges.filter(d => d <= t + 0.5).length);
+  let orbs = (p.orbs || []).map(o => ({t: o[0], kind: o[1], id: o[2], pos: [o[3], o[4]]}));
+  if (!p.orbs) orbs = (p.drops || []).filter(d => d[1] === 'Coalesced Venom').map(d => ({t: d[0], kind: 'cv', pos: d[2]}));
+  if (!p.orbs && !p.drops) orbs = auras(p, 'Volatile Venom').filter(a => a[2] != null && a[6]).map(a => ({t: a[2], kind: 'cv', pos: a[6]}));   // oldest nights
+  orbs.forEach(o => { o.set = setAt(o.t); });
+  const carriers = Object.keys(ORB).flatMap(kind => auras(p, ORB[kind].carrier).map(a => ({kind, n: a[0], on: a[1], off: a[2], pos0: a[5], pos1: a[6]})));
+  carriers.forEach(c => { if (c.off == null) return;   // the globule a carrier dropped: one that appeared when their debuff ended
+    const o = orbs.filter(o => !o.by && Math.abs(o.t - c.off) < 0.35).sort((a, b) => Math.abs(a.t - c.off) - Math.abs(b.t - c.off))[0];
+    if (o){ o.by = c.n; o.carried = c.kind; o.ok = mayPick(p, c.n, c.kind); } });
+  const ev = [...orbs.map(o => ({t: o.t, k: 'orb', o})), ...carriers.map(c => ({t: c.on, k: 'pick', c})),
+    ...(p.cones || []).filter(c => c[1] !== 'Soul Sever').map(c => ({t: c[0], k: 'cone', c})),
+    ...(p.stackev || []).filter(s => s[1] === 'Venom Rupture' && !(p.cones || []).some(c => Math.abs(c[0] - s[0]) < 0.4)).map(s => ({t: s[0], k: 'jump', s}))]
+    .sort((a, b) => a.t - b.t || (a.k === 'orb' ? -1 : 1));
+  const alive = [], gone = (o, t, how) => { o.gone = t; o.how = how; alive.splice(alive.indexOf(o), 1); };
+  const frontals = [], booms = [];
+  const boom = (t, pos, os, names, why) => { booms.push({t, pos, names: [...new Set(names.filter(Boolean))], why, set: setAt(t)}); os.forEach(o => alive.includes(o) && gone(o, t, 'exploded')); };
+  ev.forEach(e => {
+    if (e.k === 'orb'){ const o = e.o;
+      const touch = alive.filter(a => (a.kind === 'vm' || o.kind === 'vm') && dist(a.pos, o.pos) < ORB[a.kind].r + ORB[o.kind].r);
+      alive.push(o);
+      if (touch.length) boom(o.t, o.pos, [o, ...touch], [o.by, ...touch.map(a => a.by)], 'touched');
+    } else if (e.k === 'pick'){ const c = e.c;
+      if (!c.pos0) return;
+      const o = alive.filter(a => a.kind === c.kind && dist(a.pos, c.pos0) < ORB[c.kind].r + 4).sort((a, b) => dist(a.pos, c.pos0) - dist(b.pos, c.pos0))[0];
+      if (o){ o.pickedBy = c.n; gone(o, c.on, 'picked up'); }
+      if (c.kind === 'vm'){   // a purple carrier walking within 8 yd of a globule explodes it
+        const tr = trailOf(p, ORB.vm.carrier, c.n, c.on);
+        (tr ? tr[3] : []).forEach(q => { const hit = alive.filter(a => a !== o && a.t < q[0] && dist(a.pos, [q[1], q[2]]) < ORB.vm.cr + ORB[a.kind].r);
+          if (hit.length) boom(q[0], hit[0].pos, hit, [c.n], 'carrier'); });
+      }
+    } else if (e.k === 'cone'){ const F = frontalOf(p, e.c); F.set = setAt(F.t);
+      const inCone = alive.filter(a => dist(a.pos, F.pos) <= F.len + ORB[a.kind].r && angDiff(Math.atan2(a.pos[1] - F.pos[1], a.pos[0] - F.pos[0]), F.dir) <= F.deg * Math.PI / 360);
+      F.hits = {cv: inCone.filter(a => a.kind === 'cv').length, vm: inCone.filter(a => a.kind === 'vm').length};
+      if (F.log && F.log < F.hits.cv + F.hits.vm) F.hits.cv = Math.max(0, Math.min(F.hits.cv, F.log - F.hits.vm));   // the log's count wins
+      F.bad = F.hits.cv > FRONT_MAX.cv || F.hits.vm > FRONT_MAX.vm;
+      inCone.forEach(a => { a.frontal = F; gone(a, F.t, 'destroyed by ' + F.name); }); frontals.push(F);
+    } else if (e.k === 'jump'){   // stacks gained with no frontal: 15+ at once = an explosion; fewer = the globules left when Zul'jan fell
+      if (e.s[2] >= 15){ if (!booms.some(b => Math.abs(b.t - e.t) < 1.5)) booms.push({t: e.t, pos: null, names: [], why: 'log', set: setAt(e.t), log: e.s[2]});
+        else booms.filter(b => Math.abs(b.t - e.t) < 1.5).forEach(b => { b.log = e.s[2]; }); }
+      else alive.slice().forEach(a => gone(a, e.t, 'popped when the phase ended'));
+    }
+  });
+  return (p._orb = {orbs, frontals, booms});
+}
+const orbSets = p => { const S = orbSim(p); return [...new Set([...S.orbs.map(o => o.set), ...S.frontals.map(f => f.set)])]; };
+const fate = o => o.how ? `<br>${esc(o.how)}${o.pickedBy ? ' by ' + nameTip(o.pickedBy) : ''} at ${mss(o.gone)}` : '';
+function orbMarks(p, set){
+  const S = orbSim(p), out = [];
+  S.frontals.filter(F => F.set === set).forEach(F => out.push({mark: 'cone', pos: F.pos, dir: F.dir, len: F.len, deg: F.deg, t: F.t, color: F.bad ? '#ff5a4a' : '#d8d2cf',
+    tip: `<b>${esc(F.name)}</b>${F.tanks.length ? ' on ' + F.tanks.map(nameTip).join(', ') : ''}<br>Hit ${F.hits.cv} green, ${F.hits.vm} purple${F.log ? ` (the log: ${F.log} destroyed)` : ''}`}));
+  S.orbs.filter(o => o.set === set).forEach(o => { const K = ORB[o.kind];
+    out.push({mark: 'orb', pos: o.pos, r: K.r, color: K.color, letter: initial(o.by), lc: o.by ? (o.ok ? color(o.by) : '#ff5a4a') : null, t: o.t,
+      tip: o.by ? `${nameTip(o.by)} dropped a ${K.label.toLowerCase()} here${o.ok ? '' : ` <b style="color:var(--crit)">(not on the ${ORB[o.carried].pick} list)</b>`}${fate(o)}`
+                : `${K.label} from Toxic Deluge${fate(o)}`}); });
+  S.booms.filter(b => b.set === set && b.pos).forEach(b => out.push({mark: 'cross', pos: b.pos, t: b.t, color: '#ff5a4a',
+    tip: `<b>Orbs exploded</b>${b.names.length ? '<br>' + b.names.map(nameTip).join(', ') : ''}${b.log ? `<br>the log: ${b.log} Venom Rupture stacks` : ''}`}));
+  return out;
+}
+// what went wrong with the orbs in one pull: [{t, set, what, who: [names], cls}]
+function orbFails(p){
+  const S = orbSim(p), out = [];
+  S.frontals.filter(F => F.bad).forEach(F => out.push({t: F.t, set: F.set, what: `${F.name} hit ${F.hits.cv} green, ${F.hits.vm} purple`, who: F.tanks}));
+  S.orbs.filter(o => o.by && !o.ok).forEach(o => out.push({t: o.t, set: o.set, what: `Carried a ${ORB[o.carried].pick} orb (not on the list)`, who: [o.by]}));
+  S.booms.forEach(b => out.push({t: b.t, set: b.set, what: b.pos ? 'Orbs exploded' : `Orbs exploded (${b.log} Venom Rupture stacks)`, who: b.names}));
+  return out.sort((a, b) => a.t - b.t);
+}
+
+// ======== Guillotines: P1 soaks 1-2 (Guillotine), P3 soaks 1-3 (Grim Guillotine) ========
+// the soak groups (Taylor 2026-11-11); the target is on the axe and doesn't count as missing
+const G1 = ['Kiirelan', 'Calexanich', 'Daragnos', 'Monostereo', 'Sueldh', 'Sighhigh', 'Waynegry', 'Whispersix'];
+const G2 = ['Aktapewpew', 'Spellrift', 'Jeckw', 'Tayluor', 'Skwup', 'Roychi', 'Zynzii', 'Shènròn'];
+const GUIL = {'Guillotine': {phase: 'P1', groups: [G1, G2], target: '#1283485', hit: 'Guillotine soak', snap: '#1283594'},
+              'Grim Guillotine': {phase: 'P3', groups: [G1, G2, G2], target: '#1299266', hit: 'Grim Guillotine soak', snap: '#1299296'}};
+const GUIL_R = 9;
+function guillotines(p){
+  if (p._guil) return p._guil;
+  const out = [];
+  Object.entries(GUIL).forEach(([cast, G]) => castsOf(p, cast).forEach((c, i) => {
+    const key = (G.phase === 'P1' ? 10 : 30) + i + 1, tgt = auras(p, G.target).find(a => Math.abs(a[1] - c) < 1.5);
+    const snap = (p.snaps || []).find(s => s[1] === G.snap && s[0] >= c && s[0] - c < 10);
+    const land = snap ? snap[0] : tgt && tgt[2] != null ? tgt[2] : c + 5;
+    const hit = [...new Set(hitsOf(p, G.hit).filter(h => Math.abs(h[0] - land) < 2).map(h => h[1]))];
+    // the soak groups are the Mythic plan; other difficulties show who soaked, nobody "missed"
+    const group = p.diff === 16 ? G.groups[i] || [] : hit, target = tgt ? tgt[0] : null;
+    const dead = n => p.deaths.some(d => d[1] === n && d[0] < land);
+    const missed = p.diff !== 16 ? [] : group.filter(n => n !== target && !hit.includes(n) && !dead(n) && (p.specs ? p.specs[n] != null : true));
+    out.push({key, label: `${G.phase} soak ${i + 1}`, cast, t: land, target, hit, group, missed, snap: snap ? snap[2] : {},
+      tpos: (snap && target && snap[2][target]) || (tgt && tgt[6]) || null});
+  }));
+  return (p._guil = out.sort((a, b) => a.t - b.t));
+}
+function guilMarks(p, key){
+  const g = guillotines(p).find(x => x.key === key); if (!g) return [];
+  const out = [];
+  if (g.tpos) out.push({mark: 'ring', pos: g.tpos, r: GUIL_R, color: '#d8d2cf'});
+  g.group.filter(n => n !== g.target).forEach(n => { const q = g.snap[n]; if (!q) return; const miss = g.missed.includes(n);
+    if (miss) out.push({mark: 'hollow', pos: q, color: '#ff5a4a'});
+    out.push({pos: q, n, t: g.t, color: color(n), tip: `${nameTip(n)}${miss ? ' <b style="color:var(--crit)">missed the soak</b>' : ' soaked'}`}); });
+  if (g.tpos) out.push({mark: 'diamond', pos: g.tpos, t: g.t, color: '#ffffff', tip: `${g.target ? nameTip(g.target) : 'Target'}: targeted by ${esc(g.cast)}<br>${g.hit.length} soaked`});
+  return out;
+}
+
+// ======== Ghosts (Manifestation of Dread): a set = the ghosts from one Dreadmarch ========
+// Dreadmarch: Malacrass's cast possesses several players; one that doesn't follow a cast is a Manifestation of Dread reaching the
+// player it fixated (Heroic+)
 const marches = p => castsOf(p, 'Dreadmarch').map(c => { const m = auras(p, 'Dreadmarch').filter(a => a[1] - c >= -0.5 && a[1] - c <= 4);
-  return {t: c, n: m.map(a => a[0]), s: Math.max(0, ...m.map(a => (a[2] != null ? a[2] : p.dur) - a[1]))}; });
+  return {t: c, n: m.map(a => a[0]), s: Math.max(0, ...m.map(a => (a[2] != null ? a[2] : p.dur) - a[1])), a: m}; });
 const ghosts = p => auras(p, 'Dreadmarch').filter(a => !castsOf(p, 'Dreadmarch').some(c => a[1] - c >= -0.5 && a[1] - c <= 4));
 // each Manifestation of Dread: its player (Unnerving Fixation: p.fixate [player, on, off, unit id]) and the frontals that caught it
 // (Soul / Blighted Sever on the ghost). A Sever lands 4 s after its cast starts (casts within 5 s = one Sever). Missed by a frontal:
@@ -46,41 +174,110 @@ const ghostMisses = p => { const caughtAt = {}; SEVERS.flatMap(s => npcAuras(p, 
   return (p.fixate || []).map(f => { const end = f[2] != null ? f[2] : p.dur;
     const L = lands.find(L => L.t - f[1] >= PARK && end > L.t + 1 && !dead(f[0], L.t) && !(caughtAt[f[3]] || []).some(c => Math.abs(c - L.t) < 1.5));
     return L ? {n: f[0], t: L.t} : null; }).filter(Boolean); };
-// Dreadmarch: where each possessed player was when it ended, and Malacrass then (they should be stacked on him)
-const MARCH_NEAR = 8;
-const marchSpots = p => marches(p).flatMap(m => auras(p, 'Dreadmarch').filter(a => m.n.includes(a[0]) && a[1] - m.t >= -0.5 && a[1] - m.t <= 4 && a[6]).map(a => {
-  const b = bossAt(p, 'Malacrass', a[2] != null ? a[2] : p.dur); return {n: a[0], t: a[2] != null ? a[2] : p.dur, pos: a[6], boss: b, d: b ? dist(a[6], b) : null}; }));
-const clipped = p => hitsOf(p, 'Gloombomb').filter(h => !hadAura(p, h[1], 'Gloombomb', h[0], 1));
+const marchSetAt = (p, t) => castsOf(p, 'Dreadmarch').filter(c => c <= t + 0.5).length;
+// Malevolent Resonance (Mythic): two ghosts touched; it lands on both their players at once: [{t, names, pos}]
+const resonances = p => dedupe(auras(p, 'Malevolent Resonance'), 0.5, a => a[1]).map(a0 => {
+  const names = [...new Set(auras(p, 'Malevolent Resonance').filter(a => Math.abs(a[1] - a0[1]) < 0.5).map(a => a[0]))];
+  const cp = (p.castpos || []).filter(c => c[1] === 'Malevolent Resonance' && Math.abs(c[0] - a0[1]) < 1);
+  const pos = cp.length ? [cp.reduce((s, c) => s + c[2], 0) / cp.length, cp.reduce((s, c) => s + c[3], 0) / cp.length]
+    : (() => { const ps = auras(p, 'Malevolent Resonance').filter(a => Math.abs(a[1] - a0[1]) < 0.5 && a[5]).map(a => a[5]); return ps.length ? [ps.reduce((s, q) => s + q[0], 0) / ps.length, ps.reduce((s, q) => s + q[1], 0) / ps.length] : null; })();
+  return {t: a0[1], names, pos}; });
+function ghostMarks(p, set){
+  const out = [];
+  (p.cones || []).filter(c => c[1] !== 'Sever' && marchSetAt(p, c[0]) === set).forEach(c => { const F = frontalOf(p, c);
+    out.push({mark: 'cone', pos: F.pos, dir: F.dir, len: F.len, deg: F.deg, t: F.t, color: '#9aa0b4', tip: `<b>${esc(F.name)}</b> (destroys ghosts)`}); });
+  (p.fixate || []).filter(f => marchSetAt(p, f[1]) === set).forEach(f => { const tr = trailOf(p, 'Unnerving Fixation', f[0], f[1]);
+    if (tr && tr[3].length > 1) out.push({mark: 'trail', pts: tr[3].map(q => [q[1], q[2]]), color: color(f[0]), tip: `${nameTip(f[0])} while their ghost chased them (${mss(f[1])}–${mss(f[2] != null ? f[2] : p.dur)})`}); });
+  ghosts(p).filter(a => marchSetAt(p, a[1]) === set && a[5]).forEach(a => out.push({mark: 'cross', pos: a[5], t: a[1], color: '#ff5a4a', tip: `A ghost reached ${nameTip(a[0])}`}));
+  resonances(p).filter(r => marchSetAt(p, r.t) === set && r.pos).forEach(r => out.push({mark: 'cross', pos: r.pos, t: r.t, color: '#b58cff', tip: `<b>Ghosts collided</b> (Malevolent Resonance)<br>${r.names.map(nameTip).join(', ')}'s ghosts`}));
+  return out;
+}
+
+// ======== Dreadmarch: where the possessed were when it started and ended, and the CC put on them ========
+const CC = new Set(['Shockwave', 'Hammer of Justice', 'Leg Sweep', 'Asphyxiate', 'Polymorph', 'Psychic Scream', 'Mind Control', 'Incapacitating Roar',
+  'Mighty Bash', 'Kidney Shot', 'Cheap Shot', 'Blind', 'Sap', 'Gouge', 'Paralysis', 'Repentance', 'Blinding Light', 'Fear', 'Howl of Terror', 'Mortal Coil',
+  'Shadowfury', 'Intimidating Shout', 'Storm Bolt', 'Static Charge', 'Hex', 'Frost Nova', 'Entangling Roots', 'Mass Entanglement', 'Cyclone', 'Hibernate',
+  'Imprison', 'Chaos Nova', 'Fel Eruption', 'Sigil of Misery', "Dragon's Breath", 'Ring of Frost', 'Freezing Trap', 'Binding Shot', 'Intimidation',
+  'Sleep Walk', 'Landslide', 'Psychic Horror', 'Holy Word: Chastise', 'Earthgrab', 'Death Grip', "Gorefiend's Grasp", 'Ring of Peace', 'Typhoon',
+  'Thunderstorm', 'Shining Force', 'Disorienting Roar', 'Mass Polymorph', 'Song of Chi-Ji', 'Remorseless Winter', 'Blood Fear', 'Wing Clip', 'Ursol\'s Vortex',
+  'Incapacitation', 'Stun', 'Polymorphed', 'Grasping Hand', 'Bonedust Brew', 'Quaking Palm', 'War Stomp', 'Haymaker', 'Bull Rush', 'Shadow Crash']);
+const ccsOn = (p, n, t0, t1) => (p.ccs || []).filter(c => c[2] === n && c[0] >= t0 - 0.2 && c[0] <= t1 + 0.2 && CC.has(c[3]));
+function marchMarks(p, set){
+  const m = marches(p)[set - 1]; if (!m) return [];
+  const out = [];
+  m.a.forEach(a => { const end = a[2] != null ? a[2] : p.dur, tr = trailOf(p, 'Dreadmarch', a[0], a[1]), c = ccsOn(p, a[0], a[1], end);
+    if (tr && tr[3].length > 1) out.push({mark: 'trail', pts: tr[3].map(q => [q[1], q[2]]), color: color(a[0]), dash: true});
+    const p0 = a[5] || posFromTrail(tr, a[1]), p1 = a[6] || posFromTrail(tr, end);
+    if (p0) out.push({mark: 'hollow', pos: p0, t: a[1], color: color(a[0]), tip: `${nameTip(a[0])} possessed`});
+    if (p1) out.push({pos: p1, n: a[0], t: end, tip: `${nameTip(a[0])} freed after ${(end - a[1]).toFixed(1)} s${c.length ? '<br>CC: ' + c.map(x => `${esc(x[3])} (${nameTip(x[1])})`).join(', ') : '<br>no CC on them'}`});
+    c.forEach(x => { const q = posFromTrail(tr, x[0]) || p1; if (q) out.push({mark: 'diamond', pos: q, t: x[0], color: '#ffd166', tip: `<b>${esc(x[3])}</b> by ${nameTip(x[1])} on ${nameTip(a[0])}`}); });
+  });
+  return out;
+}
+const KEY_ORB = c => `<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="#0b0f1e" stroke="${c}" stroke-width="2"/></svg>`;
+const KEY_CONE = c => `<svg width="16" height="12" viewBox="0 0 16 12"><path d="M1 6L15 1L15 11Z" fill="${c}" fill-opacity=".2" stroke="${c}" stroke-width="1.4"/></svg>`;
+const KEY_LINE = (c, dash) => `<svg width="18" height="10" viewBox="0 0 18 10"><path d="M1 8Q9 0 17 6" fill="none" stroke="${c}" stroke-width="2"${dash ? ' stroke-dasharray="3 2"' : ''}/></svg>`;
+const KEY_HOLLOW = c => `<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.2" fill="none" stroke="${c}" stroke-width="2"/></svg>`;
+const KEY_DIAMOND = c => `<svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1L11 6L6 11L1 6Z" fill="${c}" stroke="#000"/></svg>`;
 const CFG = {
   slug: 'coiled-altar', name: 'The Coiled Altar', enc: ['3429'],
   map: {src: 'img/maps/coiled-altar.webp', cal: {cx: 1158, cy: 0, ppy: 6.029, rot: 0, center: [299.5, 290]}},
-  // map-only overlays (no table of their own)
+  // map overlays, each with a button per set under it; the tables with the same ov move up beside the map when it's picked
   overlays: [
-    {id: 'march', label: 'Dreadmarch', get: p => marchSpots(p).flatMap(x => [
-       {pos: x.pos, n: x.n, t: x.t, color: x.d != null && x.d > MARCH_NEAR ? '#ff5a4a' : '#d8d2cf', tip: `<b style="color:${color(x.n)}">${esc(x.n)}</b> when Dreadmarch ended${x.d != null ? `<br>${Math.round(x.d)} yd from Malacrass` : ''}`},
-       x.boss && {pos: x.boss, t: x.t, mark: 'cross', color: '#b58cff', tip: '<b>Hex Lord Malacrass</b>'}].filter(Boolean)),
-     key: () => `<span>${keyDot('#d8d2cf')}Possessed player, on Malacrass</span><span>${keyDot('#ff5a4a')}More than ${MARCH_NEAR} yd from him</span><span>${keyCross('#b58cff')}Malacrass</span>`},
-    dropOverlay('orbs', 'cv'),
-    dropOverlay('vm', 'vm', '16'),
+    {id: 'orbs', label: 'Orbs', sets: list => setsOf(list, orbSets, k => `Set ${k}`), get: orbMarks, spots: ['cv', 'vm'],
+     key: () => `<span>${KEY_ORB(ORB.cv.color)}Green orb</span><span>${KEY_ORB(ORB.vm.color)}Purple orb</span><span>Letter = who dropped it (<b style="color:var(--crit)">red</b>: not on that colour's list)</span>` +
+       `<span>${KEY_CONE('#d8d2cf')}Frontal</span><span>${KEY_CONE('#ff5a4a')}Hit more than ${FRONT_MAX.cv} green / ${FRONT_MAX.vm} purple</span><span>${keyCross('#ff5a4a')}Orbs exploded</span>`},
+    {id: 'guil', label: 'Guillotines', sets: list => setsOf(list, p => guillotines(p).map(g => g.key), k => k < 30 ? `P1 soak ${k - 10}` : `P3 soak ${k - 30}`), get: guilMarks,
+     key: () => `<span>${KEY_DIAMOND('#ffffff')}Target (${GUIL_R} yd ring)</span><span>${keyDot('#8a8a8a')}Assigned soaker</span><span>${KEY_HOLLOW('#ff5a4a')}Missed the soak</span>`},
+    {id: 'ghost', label: 'Ghosts', diffs: '15,16', sets: list => setsOf(list, p => [...new Set((p.fixate || []).map(f => marchSetAt(p, f[1])))].filter(k => k > 0), k => `Ghosts ${k}`), get: ghostMarks,
+     key: () => `<span>${KEY_LINE('#d8d2cf')}Fixated player's path</span><span>${keyCross('#ff5a4a')}A ghost reached its player</span><span>${keyCross('#b58cff')}Two ghosts collided</span><span>${KEY_CONE('#9aa0b4')}Soul / Blighted Sever</span>`},
+    {id: 'march', label: 'Dreadmarch', sets: list => setsOf(list, p => marches(p).map((m, i) => i + 1), k => `Dreadmarch ${k}`), get: marchMarks,
+     key: () => `<span>${KEY_HOLLOW('#d8d2cf')}Possessed</span><span>${keyDot('#d8d2cf')}Freed</span><span>${KEY_LINE('#d8d2cf', true)}Their path</span><span>${KEY_DIAMOND('#ffd166')}CC on them</span>`},
   ],
-  // assigned drop spots, placed on the map in admin mode; a drop more than `near` yards from every spot of its kind is off
-  spots: {set: 'spots', kinds: CFG_KINDS, near: 5},
+  // assigned drop spots for each orb set, placed on the map in admin mode (rings = the orb's size)
+  spots: {set: 'spots', kinds: ORB},
+  groupSets: ['pickers'],   // who may pick up green / purple orbs (admin: Edit orb pickers under the Orbs table)
   hitNames: {'#1297906': 'Gravebound ran out', '#1283594': 'Guillotine soak', '#1299296': 'Grim Guillotine soak'},
   modules: [
-    {id: 'sever', title: 'Sever frontals',
+    {id: 'orbs', ov: 'orbs', title: 'Orbs (Coalesced Venom and Virulent Mutation)',
+     one: p => ({head: ['Time', 'Set', ['What', 'l'], ['Who', 'l']], rows: orbFails(p).map(x => [T(x.t), V(x.set), B(x.what), PS(x.who)])}),
+     all: list => perPlayer(list, [{h: 'Carried the wrong orb', get: p => orbSim(p).orbs.filter(o => o.by && !o.ok).map(o => ({n: o.by, t: o.t}))},
+       {h: 'Caused an explosion', get: p => orbSim(p).booms.flatMap(b => b.names.map(n => ({n, t: b.t})))},
+       {h: 'Overloaded frontal (tank)', cls: 'meh', get: p => orbSim(p).frontals.filter(F => F.bad).flatMap(F => F.tanks.map(n => ({n, t: F.t})))}]),
+     foot: list => { const F = list.flatMap(p => orbSim(p).frontals), bad = F.filter(f => f.bad).length, B = list.reduce((a, p) => a + orbSim(p).booms.length, 0);
+       return F.length ? `${bad} of ${F.length} frontals hit more than ${FRONT_MAX.cv} green or ${FRONT_MAX.vm} purple orbs · ${B} explosion${B === 1 ? '' : 's'}.` : ''; },
+     edit: el => groupEditor(el, {boss: 'coiled-altar', set: 'pickers', title: 'Edit orb pickers', label: 'Orbs',
+       options: [['green', 'Green'], ['purple', 'Purple'], ['both', 'Both']], names: ROSTER.map(r => r[0]),
+       current: groupsAt(GROUPS.pickers, Date.now(), st.diff) || PICKERS, changes: GROUPS.pickers || [], onSaved: ch => { GROUPS.pickers = ch; GROUPS_RAW.pickers = JSON.stringify(ch); render(); }}),
+     note: `Mythic: green orbs only the green list picks them up; purple orbs (Mythic): only the purple list. A frontal should hit at most ${FRONT_MAX.cv} green and ${FRONT_MAX.vm} purple orbs. Purple orbs must never touch another orb, and a purple carrier must stay ${ORB.vm.cr} yd from every orb.`},
+
+    {id: 'guil', ov: 'guil', title: 'Guillotine soaks',
+     one: p => ({head: [['Soak', 'l'], ['Target', 'l'], ['Missed their soak', 'l'], 'Soaked'], rows: guillotines(p).map(g => [`<td class="l">${esc(g.label)}</td>`,
+       g.target ? P(g.target) : '<td class="l dim">–</td>', PS(g.missed), N(g.hit.length, p.diff === 16 && g.hit.length < 5 ? 'bad' : '')])}),
+     all: list => perPlayer(list, [{h: 'Missed their soak', get: p => guillotines(p).flatMap(g => g.missed.map(n => ({n, t: g.t})))}]),
+     note: `Mythic soak groups: P1 soak 1 and P3 soak 1: ${G1.join(', ')}. P1 soak 2, P3 soaks 2 and 3: ${G2.join(', ')}. Missed = in the group, alive, and not hit by the axe (it splits among players within ${GUIL_R} yd of the target; Mythic needs at least 5).`},
+
+    {id: 'march', ov: 'march', title: 'Dreadmarch',
+     one: p => ({head: ['Time', ['Possessed', 'l'], 'Freed after', ['CC on them', 'l']], rows: marches(p).flatMap(m => m.a.map(a => { const end = a[2] != null ? a[2] : p.dur, c = ccsOn(p, a[0], a[1], end);
+       return [T(a[1]), P(a[0]), V((end - a[1]).toFixed(1) + ' s'), X(c.length ? c.map(x => `${esc(x[3])} (${pname(x[1])})`).join(', ') : '<span class="dim">none</span>')]; }))}),
+     all: list => perPlayer(list, [{h: 'Possessed', cls: 'meh', get: p => marches(p).flatMap(m => m.a.map(a => ({n: a[0], t: a[1]})))},
+       {h: 'CC on a possessed player', cls: 'okc', get: p => marches(p).flatMap(m => m.a.flatMap(a => ccsOn(p, a[0], a[1], a[2] != null ? a[2] : p.dur).map(x => ({n: x[1], t: x[0]}))))}]),
+     note: 'Possessed players march to the edge: stun them (Shockwave) and ring or grip them so nobody falls off. CC = stuns, roots, fears, incapacitates, grips and knockbacks players put on them while possessed.'},
+
+    {id: 'ghost', ov: 'ghost', title: 'Ghosts (Manifestation of Dread)',
+     one: p => ({head: ['Time', ['What', 'l'], ['Whose ghost', 'l']], rows: [
+       ...(p.diff === 14 ? [] : ghosts(p)).map(a => ({t: a[1], r: [T(a[1]), B('Reached its player'), P(a[0])]})),
+       ...resonances(p).map(r => ({t: r.t, r: [T(r.t), B('Two ghosts collided'), PS(r.names)]})),
+       ...ghostMisses(p).map(x => ({t: x.t, r: [T(x.t), `<td class="what meh">Missed by a frontal</td>`, P(x.n)]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
+     all: list => perPlayer(list, [{h: 'Ghost reached them', get: p => p.diff === 14 ? [] : ghosts(p).map(a => ({n: a[0], t: a[1]}))},
+       {h: 'Ghosts collided', get: p => resonances(p).flatMap(r => r.names.map(n => ({n, t: r.t})))},
+       {h: 'Ghost missed by a frontal', cls: 'meh', get: p => ghostMisses(p)}]),
+     note: 'Each Manifestation of Dread creeps toward its player whenever they look away: face it and park it where the tank\'s Soul or Blighted Sever will hit it, away from other ghosts (Mythic: two touching = Malevolent Resonance on both players; ghosts refixate every 15 s). Missed by a frontal = a Sever landed while their ghost (out for 10 s or more) was still chasing them, and it wasn\'t in it. On Heroic+ one that reaches you marches you again.'},
+
+    {id: 'sever', title: 'Sever frontals on non-tanks',
      one: p => ({head: ['Time', ['Hit', 'l'], ['Frontal', 'l']], rows: severs(p).sort((a, b) => a.t - b.t).map(x => [T(x.t), P(x.n), `<td class="l">${esc(x.s)}</td>`])}),
      all: list => perPlayer(list, [{h: 'Hit by a frontal', get: p => severs(p).map(x => ({n: x.n, t: x.t}))}]),
      note: "Sever, Soul Sever and Blighted Sever are for the tank only (Soul and Blighted Sever also leave Gravebound). Tanks don't count."},
-
-    {id: 'ghost', title: 'Ghosts (Manifestation of Dread)',
-     one: p => ({head: ['Time', ['What', 'l'], ['Whose ghost', 'l']], rows: [
-       ...(p.diff === 14 ? [] : ghosts(p)).map(a => ({t: a[1], r: [T(a[1]), B('Reached its player'), P(a[0])]})),
-       ...ghostMisses(p).map(x => ({t: x.t, r: [T(x.t), `<td class="what meh">Missed by a frontal</td>`, P(x.n)]}))].sort((a, b) => a.t - b.t).map(x => x.r)}),
-     all: list => perPlayer(list, [{h: 'Ghost reached them', get: p => p.diff === 14 ? [] : ghosts(p).map(a => ({n: a[0], t: a[1]}))},
-       {h: 'Ghost missed by a frontal', cls: 'meh', get: p => ghostMisses(p)}]),
-     note: 'Each Manifestation of Dread creeps toward its player whenever they look away: face it and park it where the tank\'s Soul Sever will hit it. Missed by a frontal = a Soul or Blighted Sever landed while their ghost (out for 10 s or more) was still chasing them, and it wasn\'t in it. On Heroic+ one that reaches you marches you again.',
-     overlay: {label: 'Ghosts that reached', diffs: '15,16', get: p => ghosts(p).map(a => ({pos: a[5], n: a[0], t: a[1], mark: 'cross', color: '#b58cff', tip: `<b style="color:${color(a[0])}">${esc(a[0])}</b>: a ghost reached them`})),
-       key: () => `<span>${keyCross('#b58cff')}Where a ghost reached its player</span>`}},
 
     {id: 'gloom', title: 'Gloombomb and Gravebound',
      one: p => ({head: ['Time', ['What', 'l'], ['Who', 'l']], rows: [...dedupe(clipped(p), 2).map(h0 => ({t: h0[0], r: [T(h0[0]), B("Hit by someone's Gloombomb"), PS([...new Set(clipped(p).filter(h => Math.abs(h[0] - h0[0]) < 2).map(h => h[1]))])]})),
@@ -110,8 +307,9 @@ const CFG = {
     'Eternal Nightfall': 1286918, 'Veil of Twilight': 1286912, 'Dreadmarch': 1285643, 'Manifestation of Dread': 1285911, 'Gravebound': 1286837,
     'Soul Fragments': 1286837, 'Unworthy': 1312424, 'Axegrinder': 1283832, 'Noxious Ground': 1283290, 'Defiled Ground': 1298591, 'Gloombomb': 1310882,
     'Volatile Venom': 1282419, 'Coalesced Venom': 1282403, 'Venom Rupture': 1299838, 'Sever': 1299680, 'Soul Sever': 1286620, 'Blighted Sever': 1307279, 'Venomfang': 1282287,
-    'Spiteful Soulcoiler': 1286441, 'Unnerving Fixation': 1285911, 'Deadly Venom': 1297338},
-  how: "Built from the Encounter Journal, Method's Heroic and Mythic guides and Icy Veins, and checked against Taylor's logs (Aug-Oct 2026: 30 Heroic pulls; no Mythic pulls seen yet); not yet checked on a live raid night. The room image is from raidstrats.gg, lined up on the platform's edges, with the stairs where the raid gathers between pulls at the bottom. Coalesced Venom drops are where a carrier's Volatile Venom ended (the exact spot the puddle appeared, from Nov 11 on; before that the carrier's last logged position, which can be a few yards off); Virulent Mutation drops (Mythic) are where a carried one ran out. Assigned spots are placed on the map in admin mode; each pull is judged against the spots saved before it started, and a drop more than 5 yd from every spot of its kind is off its spot.",
+    'Spiteful Soulcoiler': 1286441, 'Unnerving Fixation': 1285911, 'Deadly Venom': 1297338, 'Toxic Deluge': 1299960,
+    'Virulent Mutation': 1310544, 'Mutagenic Venom': 1310498, 'Malevolent Resonance': 1310732},
+  how: "Built from the Encounter Journal and spell data (wago.tools), Method's Heroic and Mythic guides, and Taylor's logs (Heroic only so far: the purple orbs, Mutagenic Venom, Malevolent Resonance and refixating ghosts are Mythic-only and not yet seen in a log). Orbs: every globule is placed where the log first shows it; a carrier's orb is the one that appears when their Volatile / Mutagenic Venom ends (initial = who carried it). Picked up = the nearest orb of that colour to where they stood. A frontal is drawn from Zul'jan toward the players it hit (35 yd Sever, 45 yd Blighted Sever, 60 degrees); the orbs inside it count as hit, and the log's Venom Rupture stacks give the exact number destroyed (shown on hover). Green orbs are drawn 3 yd across in radius (measured from pickups); purple 8 yd (their carrier's explosion range; the game files don't give the orb's own size, to be measured on the first Mythic pulls). An explosion = a purple orb overlapping another orb, a purple carrier within 8 yd of one, or 15+ Venom Rupture stacks at once with no frontal. Guillotine soakers: everyone's position when the axe landed. Ghost trails: the fixated player's path while fixated. Dreadmarch: the possessed player's path, with the CC players put on them. The room image is from raidstrats.gg.",
 };
 </script>
 <script src="boss.js"></script>
