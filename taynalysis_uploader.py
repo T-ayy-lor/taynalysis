@@ -1993,6 +1993,19 @@ def set_team(team):
     ACT_DIR = f'{base}/activity'; ACT_INDEX = f'{ACT_DIR}/nights.json'   # every boss pull and trash fight, for the timelines
     for b in FAIL_BOSSES: b['dir'] = f"{base}/{b['slug']}"; b['index'] = f"{b['dir']}/nights.json"   # the other bosses of the tier
 
+TEAM_DAYS = {0: 'ac-mythic', 1: 'ac-heroic', 2: 'ac-mythic', 3: 'ac-mythic', 5: 'ac-weekend'}   # Mon (Heroic night), Tue, Wed, Thu, Sat
+def raid_day():
+    """Now in Eastern time, minus 6 hours: a raid that runs past midnight still counts as that evening's."""
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo('America/New_York'))
+    except Exception:
+        now = datetime.now()
+    return datetime.fromtimestamp(now.timestamp() - 6 * 3600, now.tzinfo)
+def team_by_day():
+    t = TEAM_DAYS.get(raid_day().weekday())
+    return next((x for x in TEAMS if x[0] == t), None)
+
 def pick_team():
     """The team from --team, or asked in the Terminal window. Returns (id, name)."""
     def find(s):
@@ -2002,6 +2015,18 @@ def pick_team():
         got = find(sys.argv[sys.argv.index('--team') + 1] if sys.argv.index('--team') + 1 < len(sys.argv) else '')
         if not got: sys.exit('--team takes ' + ', '.join(t[0] for t in TEAMS) + ' (or 1 to ' + str(len(TEAMS)) + ').')
         return got
+    # raid nights (shared.js TEAMS, Eastern): the team is known from the day; before 6 AM counts as the night before
+    # (Taylor 2026-11-11: "make the uploader infer team by day of the week")
+    guess = team_by_day()
+    if guess:
+        day = raid_day().strftime('%A')
+        if not sys.stdin.isatty():
+            print(f'[{stamp()}] {day}: {guess[1]}.'); return guess
+        print(f'It\'s {day}: {guess[1]}. Press Return to keep it, or type ' + ', '.join(f'{i + 1} for {n}' for i, (_, n) in enumerate(TEAMS)) + ' (10 s).')
+        if select.select([sys.stdin], [], [], 10)[0]:
+            got = find(sys.stdin.readline())
+            if got: return got
+        return guess
     if not sys.stdin.isatty(): sys.exit('Which team? Add --team ' + ' / '.join(t[0] for t in TEAMS) + '.')
     print('Which team is this raid for?')
     for i, (_, name) in enumerate(TEAMS): print(f'  {i + 1}  {name}')
