@@ -44,8 +44,14 @@ GROUP_SETS = {'twin-fangs': {'feast': lambda k, v: isinstance(v, int) and not is
               # Coiled Altar: where Coalesced Venom (cv) / Virulent Mutation (vm) carriers drop them: {"cv:1": [world x, world y]}
               'coiled-altar': {'spots': lambda k, v: bool(SPOT_KEY.match(k)) and isinstance(v, list) and len(v) == 2 and all(is_coord(x) for x in v),
                                # who may pick up which globules: {"Player": "green" | "purple" | "both"}
-                               'pickers': lambda k, v: v in ('green', 'purple', 'both')}}
+                               'pickers': lambda k, v: v in ('green', 'purple', 'both'),
+                               # Guillotine soak groups: {"11": [names], "12", "31", "32", "33"} (P1 soak 1-2, P3 soak 1-3)
+                               'soaks': lambda k, v: k in ('11', '12', '31', '32', '33') and isinstance(v, list) and len(v) <= 15 and
+                                        all(isinstance(n, str) and 0 < len(n) <= 40 and not any(ch in n for ch in '<>"&') for n in v)}}
 GROUP_MAX = {'spots': 300}   # most entries in one save (default 40)
+# sets any boss page may save: 'cal' = an admin's nudge of where the combat-log positions sit on the room image
+# {"dx": map px, "dy": map px, "rot": degrees, "zoom": factor}
+ANY_SETS = {'cal': lambda k, v: k in ('dx', 'dy', 'rot', 'zoom') and is_coord(v) and (k != 'zoom' or 0.2 <= v <= 5) and abs(v) <= 600}
 SLUG = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 GROUP_LOCK = threading.Lock()
 PULL_KEY = re.compile(r'^[A-Za-z0-9_.-]{1,80}#[0-9]{1,4}$')        # a pull: its log's name and its number in that log
@@ -130,9 +136,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def put_groups(self, path):
         parts = path[len('/api/groups/'):].strip('/').split('/')
-        if len(parts) != 4 or not all(SLUG.match(x) for x in parts) or parts[3] not in GROUP_SETS.get(parts[2], {}):
+        valid = GROUP_SETS.get(parts[2], {}).get(parts[3]) or ANY_SETS.get(parts[3]) if len(parts) == 4 else None
+        if len(parts) != 4 or not all(SLUG.match(x) for x in parts) or not valid:
             return self.reply(400, {'ok': False, 'error': 'path not allowed'})
-        valid = GROUP_SETS[parts[2]][parts[3]]
         if not EDITOR_KEY:
             return self.reply(503, {'ok': False, 'error': 'group saving is off (no editor key on the server)'})
         if not self.authorized(EDITOR_KEY):

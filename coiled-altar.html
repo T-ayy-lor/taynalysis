@@ -105,8 +105,10 @@ function orbSetAt(p, t){
   const soul = castsOf(p, 'Soulbinding')[0], p3 = soul != null && t >= soul, ds = castsOf(p, 'Toxic Deluge').filter(d => p3 ? d >= soul : soul == null || d < soul);
   return (p3 ? 30 : 10) + Math.max(1, ds.filter(d => d <= t + 0.5).length);
 }
-const ORB_PLAN = [11, 12, 13, 14, 31, 32, 33];   // Mythic: four orb sets in P1, three in P3 (the raid's plan)
-const orbSetLabel = k => `P${Math.floor(k / 10)} set ${k % 10}`;
+// set 10 = "P1": where the P1 spots are placed before any pull (every P1 set shares them); 31, 32... = P3 sets, each its own spots
+const orbSetLabel = k => k === 10 ? 'P1' : `P${Math.floor(k / 10)} set ${k % 10}`;
+// P3 sets that have spots: saved ones, plus the unsaved ones while an admin edits
+const spotP3Sets = () => [...new Set([...Object.keys(spotsNow(16)), ...Object.keys(editingSpots() ? SPOTS.draft : {})].map(k => (k.match(/^s(3\d):/) || [])[1]).filter(Boolean).map(Number))];
 const orbSets = p => { const S = orbSim(p); return [...new Set([...S.orbs.map(o => o.set), ...S.frontals.map(f => f.set)])]; };
 const fate = o => o.how ? `<br>${esc(o.how)}${o.pickedBy ? ' by ' + nameTip(o.pickedBy) : ''} at ${mss(o.gone)}` : '';
 function orbMarks(p, set){
@@ -114,7 +116,7 @@ function orbMarks(p, set){
   S.frontals.filter(F => F.set === set).forEach(F => out.push({mark: 'cone', pos: F.pos, dir: F.dir, len: F.len, deg: F.deg, t: F.t, color: F.bad ? '#ff5a4a' : '#d8d2cf',
     tip: `<b>${esc(F.name)}</b>${F.tanks.length ? ' on ' + F.tanks.map(nameTip).join(', ') : ''}<br>Hit ${F.hits.cv} green, ${F.hits.vm} purple${F.log ? ` (the log: ${F.log} destroyed)` : ''}`}));
   S.orbs.filter(o => o.set === set).forEach(o => { const K = ORB[o.kind];
-    out.push({mark: 'orb', pos: o.pos, r: K.r, color: K.color, letter: initial(o.by), lc: o.by ? (o.ok ? color(o.by) : '#ff5a4a') : null, t: o.t,
+    out.push({mark: 'orb', kind: o.kind, dropped: !!o.by, pos: o.pos, r: K.r, color: K.color, letter: initial(o.by), lc: o.by ? (o.ok ? color(o.by) : '#ff5a4a') : null, t: o.t,
       tip: o.by ? `${nameTip(o.by)} dropped a ${K.label.toLowerCase()} here${o.ok ? '' : ` <b style="color:var(--crit)">(not on the ${ORB[o.carried].pick} list)</b>`}${fate(o)}`
                 : `${K.label} from Toxic Deluge${fate(o)}`}); });
   S.booms.filter(b => b.set === set && b.pos).forEach(b => out.push({mark: 'cross', pos: b.pos, t: b.t, color: '#ff5a4a',
@@ -132,11 +134,19 @@ function orbFails(p){
 
 // ======== Guillotines: P1 soaks 1-2 (Guillotine), P3 soaks 1-3 (Grim Guillotine) ========
 // the soak groups (Taylor 2026-11-11); the target is on the axe and doesn't count as missing
-const G1 = ['Kiirelan', 'Calexanich', 'Daragnos', 'Monostereo', 'Sueldh', 'Sighhigh', 'Waynegry', 'Whispersix'];
+const G1 = ['Calexanich', 'Daragnos', 'Kiirelan', 'Monostereo', 'Yuña', 'Sighhigh', 'Sueldh', 'Waynegry'];   // the NSRT note, 2026-11-11
 const G2 = ['Aktapewpew', 'Spellrift', 'Jeckw', 'Tayluor', 'Skwup', 'Roychi', 'Zynzii', 'Shènròn'];
 const GUIL = {'Guillotine': {phase: 'P1', groups: [G1, G2], target: '#1283485', hit: 'Guillotine soak', snap: '#1283594'},
               'Grim Guillotine': {phase: 'P3', groups: [G1, G2, G2], target: '#1299266', hit: 'Grim Guillotine soak', snap: '#1299296'}};
 const GUIL_R = 9;
+// the Mythic plan: each soak's key (as guillotines() numbers them), label and group
+const G3 = ['Aktapewpew', 'Jeckw', 'Skwup', 'Spellrift', 'Tayluor', 'Integralgrip', 'Phurry', 'Snakespeare'];
+const GUIL_DEF = [[11, 'P1 soak 1', G1], [12, 'P1 soak 2', G2], [31, 'P3 soak 1', G1], [32, 'P3 soak 2', G2], [33, 'P3 soak 3', G3]].map(([key, label, group]) => ({key, label, group}));
+// the groups in force: saved ones (Edit soak groups, or the uploader reading the NSRT note) for that moment, else the defaults
+const soakGroups = (utcMs, diff) => { const g = groupsAt(GROUPS.soaks, utcMs, diff) || {}; return GUIL_DEF.map(P0 => Object.assign({}, P0, {group: g[P0.key] || P0.group})); };
+const GUIL_PLAN_NOW = () => soakGroups(Date.now(), 16);
+const GUIL_TXT = {target: 'Targeted', soaked: 'Soaked', extra: 'Soaked (not in this group)', missed: 'Missed the soak', dead: 'Dead before it landed', absent: 'Not in the raid'};
+const GUIL_CLS = {target: '', soaked: 'good', extra: 'bad', missed: 'bad', dead: 'dim', absent: 'dim'};
 function guillotines(p){
   if (p._guil) return p._guil;
   const out = [];
@@ -146,11 +156,19 @@ function guillotines(p){
     const land = snap ? snap[0] : tgt && tgt[2] != null ? tgt[2] : c + 5;
     const hit = [...new Set(hitsOf(p, G.hit).filter(h => Math.abs(h[0] - land) < 2).map(h => h[1]))];
     // the soak groups are the Mythic plan; other difficulties show who soaked, nobody "missed"
-    const group = p.diff === 16 ? G.groups[i] || [] : hit, target = tgt ? tgt[0] : null;
+    const planned = p.diff === 16 ? (soakGroups(pullUtc(p), p.diff).find(x => x.key === key) || {}).group : null;
+    const group = p.diff === 16 ? planned || G.groups[i] || [] : hit, target = tgt ? tgt[0] : null;
     const dead = n => p.deaths.some(d => d[1] === n && d[0] < land);
     const missed = p.diff !== 16 ? [] : group.filter(n => n !== target && !hit.includes(n) && !dead(n) && (p.specs ? p.specs[n] != null : true));
-    out.push({key, label: `${G.phase} soak ${i + 1}`, cast, t: land, target, hit, group, missed, snap: snap ? snap[2] : {},
-      tpos: (snap && target && snap[2][target]) || (tgt && tgt[6]) || null});
+    const sp = snap ? snap[2] : {}, tpos = (snap && target && sp[target]) || (tgt && tgt[6]) || null;
+    // one row per soaker of this soak only (Taylor: "just have rows for each soaking player"): Mythic = the soak's group members
+    // in the raid (not the target, who is in the heading); other difficulties = whoever the axe hit
+    const status = n => hit.includes(n) ? 'soaked' : dead(n) ? 'dead' : p.specs && p.specs[n] == null ? 'absent' : 'missed';
+    // Mythic: anyone the axe hit who isn't in this soak's group and isn't the target is added after the group (Taylor 2026-11-11)
+    const players = [...group.filter(n => n !== target).map(n => ({n, s: status(n)})),
+      ...(p.diff === 16 ? hit.filter(n => n !== target && !group.includes(n)).map(n => ({n, s: 'extra'})) : [])]
+      .map(x => Object.assign(x, {d: tpos && sp[x.n] ? dist(sp[x.n], tpos) : null}));
+    out.push({key, label: `${G.phase} soak ${i + 1}`, cast, t: land, target, hit, group, missed, snap: sp, tpos, players});
   }));
   return (p._guil = out.sort((a, b) => a.t - b.t));
 }
@@ -163,6 +181,33 @@ function guilMarks(p, key){
     out.push({pos: q, n, t: g.t, color: color(n), tip: `${nameTip(n)}${miss ? ' <b style="color:var(--crit)">missed the soak</b>' : ' soaked'}`}); });
   if (g.tpos) out.push({mark: 'diamond', pos: g.tpos, t: g.t, color: '#ffffff', tip: `${g.target ? nameTip(g.target) : 'Target'}: targeted by ${esc(g.cast)}<br>${g.hit.length} soaked`});
   return out;
+}
+
+// admin: Edit soak groups (under the Guillotine table): one line of names per soak; Save counts for Mythic pulls from now on
+function soakEditor(el){
+  if (!isEditor()){ el.innerHTML = ''; return; }
+  const d0 = el.querySelector('details.grped'); if (d0 && d0.open) return;   // leave it alone while it's being edited
+  const plan = GUIL_PLAN_NOW(), mine = (GROUPS.soaks || []).filter(c => !c.diffs || c.diffs.includes(16));
+  const fmt = c => new Date(c.at * 1000).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+  el.innerHTML = `<details class="grped"><summary>Edit soak groups</summary>
+    <p class="sphelp">Mythic. Names separated by spaces; they count for pulls that start after you save (the uploader also updates them from the NSRT note after a /reload).</p>
+    ${plan.map(P0 => `<label class="soakrow"><span>${esc(P0.label)}</span><input type="text" data-k="${P0.key}" value="${esc(P0.group.join(' '))}" aria-label="${esc(P0.label)} soakers"></label>`).join('')}
+    <div class="gact"><button type="button" class="pri" data-a="save">Save</button><span class="gmsg"></span></div>
+    <div class="ghist">${mine.length ? 'Saved (newest first): ' + mine.slice(-4).reverse().map(fmt).join(' · ') + '.' : 'Nothing saved yet: these are the NSRT note\'s groups.'}</div></details>`;
+  const msg = (t, bad) => { const m = el.querySelector('.gmsg'); m.textContent = t; m.classList.toggle('bad', !!bad); };
+  el.querySelector('[data-a="save"]').onclick = async () => {
+    const groups = {}, known = new Set(ROSTER.map(r => r[0])), odd = [];
+    el.querySelectorAll('input[data-k]').forEach(i => { groups[i.dataset.k] = i.value.split(/[\s,]+/).filter(Boolean); groups[i.dataset.k].forEach(n => { if (!known.has(n)) odd.push(n); }); });
+    msg('Saving…');
+    try { const r = await fetch(`api/groups/${TEAM.id}/${TIER}/coiled-altar/soaks`, {method: 'PUT', headers: {'Authorization': 'Bearer ' + adminKey(), 'Content-Type': 'application/json'},
+        body: JSON.stringify({groups, from: 'now', diffs: [16]})});
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401){ msg('The server didn\'t accept the admin key: sign out (title row) and save it again.', true); return; }
+      if (!r.ok || !j.ok){ msg(j.error === 'path not allowed' ? 'The server needs updating first (push, then rerun setup).' : (j.error || `Couldn't save (${r.status}).`), true); return; }
+      GROUPS.soaks = j.changes.slice().sort((a, b) => a.at - b.at); GROUPS_RAW.soaks = JSON.stringify(j.changes);
+      msg('Saved.' + (odd.length ? ` Not on the roster (check the spelling): ${[...new Set(odd)].join(', ')}.` : ''), !!odd.length);
+      render();   // the box stays open so the message (and any spelling warning) stays visible
+    } catch (e) { msg('Couldn\'t reach the server.', true); } };
 }
 
 // ======== Ghosts (Manifestation of Dread): a set = the ghosts from one Dreadmarch ========
@@ -234,11 +279,18 @@ const CFG = {
     {id: 'orbs', label: 'Orbs', get: orbMarks, spots: ['cv', 'vm'],
      // on Mythic every planned set has a button (so spots can be placed before any pull); P1 sets share one spot layout (group 1),
      // each P3 set has its own (31, 32, 33)
-     sets: list => { const S = setsOf(list, orbSets, orbSetLabel), have = new Set(S.map(x => x.k));
-       if (st.diff === 16) ORB_PLAN.forEach(k => { if (!have.has(k)) S.push({k, label: orbSetLabel(k)}); });
+     // the sets in the pulls shown, however many there were. On Mythic also: "P1" when no P1 set is in view (to place the shared P1
+     // spots), every P3 set that has spots saved, and for an admin the next P3 set (to place its spots before it's ever reached)
+     sets: list => { const S = setsOf(list, orbSets, orbSetLabel), have = new Set(S.map(x => x.k)), add = k => { if (!have.has(k)){ have.add(k); S.push({k, label: orbSetLabel(k)}); } };
+       if (st.diff === 16){
+         if (![...have].some(k => k < 30)) add(10);
+         spotP3Sets().forEach(add);
+         // admin: P3 sets 1-3 (the raid's three P3 layouts) are always there to place spots on, plus one past the highest
+         if (isEditor()){ const top = Math.max(33, ...[...have].filter(k => k > 30)); for (let k = 31; k <= top + 1; k++) add(k); }
+       }
        return S.sort((a, b) => a.k - b.k); },
      spotGroup: k => k < 30 ? 1 : k,
-     setNote: k => k < 30 ? `${orbSetLabel(k)} (every P1 set shares these spots)` : `${orbSetLabel(k)} (its own spots)`,
+     setNote: k => k < 30 ? `${orbSetLabel(k)} (every P1 set shares these spots)` : `${orbSetLabel(k)} (its own spots; add spots here and the next P3 set's button appears)`,
      key: () => `<span>${KEY_ORB(ORB.cv.color)}Green orb</span><span>${KEY_ORB(ORB.vm.color)}Purple orb</span><span>Letter = who dropped it (<b style="color:var(--crit)">red</b>: not on that colour's list)</span>` +
        `<span>${KEY_CONE('#d8d2cf')}Frontal</span><span>${KEY_CONE('#ff5a4a')}Hit more than ${FRONT_MAX.cv} green / ${FRONT_MAX.vm} purple</span><span>${keyCross('#ff5a4a')}Orbs exploded</span>`},
     {id: 'guil', label: 'Guillotines', sets: list => setsOf(list, p => guillotines(p).map(g => g.key), k => k < 30 ? `P1 soak ${k - 10}` : `P3 soak ${k - 30}`), get: guilMarks,
@@ -250,7 +302,7 @@ const CFG = {
   ],
   // assigned drop spots for each orb set, placed on the map in admin mode (rings = the orb's size)
   spots: {set: 'spots', kinds: ORB},
-  groupSets: ['pickers'],   // who may pick up green / purple orbs (admin: Edit orb pickers under the Orbs table)
+  groupSets: ['pickers', 'soaks'],   // who may pick up green / purple orbs (admin: Edit orb pickers under the Orbs table)
   hitNames: {'#1297906': 'Gravebound ran out', '#1283594': 'Guillotine soak', '#1299296': 'Grim Guillotine soak'},
   modules: [
     {id: 'orbs', ov: 'orbs', title: 'Orbs (Coalesced Venom and Virulent Mutation)',
@@ -265,11 +317,25 @@ const CFG = {
        current: groupsAt(GROUPS.pickers, Date.now(), st.diff) || PICKERS, changes: GROUPS.pickers || [], onSaved: ch => { GROUPS.pickers = ch; GROUPS_RAW.pickers = JSON.stringify(ch); render(); }}),
      note: `Mythic: green orbs only the green list picks them up; purple orbs (Mythic): only the purple list. A frontal should hit at most ${FRONT_MAX.cv} green and ${FRONT_MAX.vm} purple orbs. Purple orbs must never touch another orb, and a purple carrier must stay ${ORB.vm.cr} yd from every orb.`},
 
-    {id: 'guil', ov: 'guil', title: 'Guillotine soaks',
-     one: p => ({head: [['Soak', 'l'], ['Target', 'l'], ['Missed their soak', 'l'], 'Soaked'], rows: guillotines(p).map(g => [`<td class="l">${esc(g.label)}</td>`,
-       g.target ? P(g.target) : '<td class="l dim">–</td>', PS(g.missed), N(g.hit.length, p.diff === 16 && g.hit.length < 5 ? 'bad' : '')])}),
-     all: list => perPlayer(list, [{h: 'Missed their soak', get: p => guillotines(p).flatMap(g => g.missed.map(n => ({n, t: g.t})))}]),
-     note: `Mythic soak groups: P1 soak 1 and P3 soak 1: ${G1.join(', ')}. P1 soak 2, P3 soaks 2 and 3: ${G2.join(', ')}. Missed = in the group, alive, and not hit by the axe (it splits among players within ${GUIL_R} yd of the target; Mythic needs at least 5).`},
+    {id: 'guil', ov: 'guil', title: 'Guillotine soaks', nosort: true,
+     // a section per soak, then a row per player in its group. Mythic: every planned soak is listed with its whole group, with
+     // or without data (Taylor: "I want to SEE THE PLAYERS IN THEIR ROWS WITH NO DATA STILL"); other difficulties: the soaks
+     // that happened, with whoever the axe hit
+     one: p => { const gs = guillotines(p), plan = p.diff === 16 ? soakGroups(pullUtc(p), 16) : gs.map(g => ({key: g.key}));
+       return {head: [['Player', 'l'], ['Result', 'l'], 'From the target'], rows: plan.flatMap(P0 => { const g = gs.find(x => x.key === P0.key);
+         if (!g) return [`${esc(P0.label)} · <span class="dim">not reached this pull</span>`, ...P0.group.map(n => [P(n), '<td class="l dim">–</td>', '<td class="num dim">–</td>'])];
+         return [`${esc(g.label)} · ${esc(g.cast)} on ${g.target ? pname(g.target) : '<span class="dim">?</span>'} · <span class="${p.diff === 16 && g.hit.length < 5 ? 'bad' : 'dim'}">${g.hit.length} soaked</span>`,
+           ...g.players.map(x => [P(x.n), `<td class="l ${GUIL_CLS[x.s]}">${GUIL_TXT[x.s]}</td>`, x.d == null ? '<td class="num dim">–</td>' : N(x.d.toFixed(1) + ' yd', x.d > GUIL_R || x.s === 'extra' ? 'bad' : '')])]; })}; },
+     all: list => { const by = {};   // per soak: each player's missed / soaked over the pulls that reached it
+       if (st.diff === 16) GUIL_PLAN_NOW().forEach(P0 => { by[P0.key] = {label: P0.label, n: 0, P: Object.fromEntries(P0.group.map(n => [n, {missed: 0, soaked: 0}]))}; });
+       list.forEach(p => guillotines(p).forEach(g => { const b = by[g.key] ||= {label: g.label, n: 0, P: {}}; b.n++;
+         g.players.forEach(x => { const r = b.P[x.n] ||= {missed: 0, soaked: 0}; if (x.s === 'missed') r.missed++; if (x.s === 'soaked' || x.s === 'extra') r.soaked++; if (x.s === 'extra') r.extra = true; }); }));
+       return {head: [['Player', 'l'], 'Missed', 'Soaked'], rows: Object.keys(by).sort((a, b) => a - b).flatMap(k => { const b = by[k];
+         return [`${esc(b.label)} · ${b.n} pull${b.n === 1 ? '' : 's'} reached it`, ...Object.entries(b.P).sort((x, y) => y[1].missed - x[1].missed || byRoster(x[0], y[0]))
+           .sort((x, y) => !!x[1].extra - !!y[1].extra)   // players not in the group last, their soaks in red
+           .map(([n, r]) => [P(n), N(r.missed), N(r.soaked, r.extra ? 'bad' : '')])]; })}; },
+     edit: el => soakEditor(el),
+     note: `Mythic soak groups come from the raid's NSRT note (the uploader reads it after a /reload) or an admin's Edit soak groups; each pull uses the groups saved before it started. Missed = in the group, alive, and not hit by the axe (it splits among players within ${GUIL_R} yd of the target; Mythic needs at least 5).`},
 
     {id: 'march', ov: 'march', title: 'Dreadmarch',
      one: p => ({head: ['Time', ['Possessed', 'l'], 'Freed after', ['CC on them', 'l']], rows: marches(p).flatMap(m => m.a.map(a => { const end = a[2] != null ? a[2] : p.dur, c = ccsOn(p, a[0], a[1], end);
@@ -306,7 +372,9 @@ const CFG = {
      note: "Kick Wail of Terror late in the cast (each kick blinks the add) and kill the add before 100 energy. Eternal Nightfall counts as kicked when the Veil of Twilight is broken in time."},
 
     {id: 'fang', title: 'Venomfang',
-     one: p => ({head: ['Time', ['Player', 'l'], ['Dispelled by', 'l'], 'After'], rows: fangs(p).filter(f => !f.by || f.s > 6).map(f => [T(f.t), P(f.n), f.by ? P(f.by) : '<td class="l bad">not dispelled</td>', N(f.s.toFixed(1) + ' s', f.by ? (f.s > 6 ? 'meh' : '') : 'bad')])}),
+     // every Venomfang (Taylor 2026-11-11): the targeted player, then "dispelled in X s by <dispeller>" or "not dispelled"
+     one: p => ({head: ['Time', ['Targeted', 'l'], ['Result', 'l']], rows: fangs(p).map(f => [T(f.t), P(f.n),
+       f.by ? `<td class="l${f.s > 6 ? ' meh' : ''}">Dispelled in ${f.s.toFixed(1)} s by ${pname(f.by)}</td>` : '<td class="l bad">Not dispelled</td>'])}),
      all: list => perPlayer(list, [{h: 'Not dispelled', get: p => fangs(p).filter(f => !f.by).map(f => ({n: f.n, t: f.t}))}]),
      foot: list => { const d = list.flatMap(fangs).filter(f => f.by); return d.length ? `Dispelled after ${(d.reduce((a, f) => a + f.s, 0) / d.length).toFixed(1)} s on average.` : ''; },
      note: 'A poison DoT on several players: dispel it quickly.'},

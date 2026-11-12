@@ -5,7 +5,11 @@
 set -euo pipefail
 
 DOMAIN="taynalysis.com"
-RAW="https://raw.githubusercontent.com/t-ayy-lor/taynalysis/main/server"
+# GitHub's raw links keep serving a file's old copy for up to 5 minutes after a push, so fetch the newest commit by its id
+# (that link never goes stale); fall back to main if GitHub's API doesn't answer
+SHA="$(curl -fsSL https://api.github.com/repos/t-ayy-lor/taynalysis/commits/main -H 'Accept: application/vnd.github.sha' 2>/dev/null || true)"
+if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then RAW="https://raw.githubusercontent.com/t-ayy-lor/taynalysis/$SHA/server"; echo "Using commit ${SHA:0:7}"
+else RAW="https://raw.githubusercontent.com/t-ayy-lor/taynalysis/main/server"; fi
 SITE="/srv/taynalysis/site"
 APP="/opt/taynalysis"
 CONF="/etc/taynalysis"

@@ -139,8 +139,10 @@ function buildPage(){
       <div class="mapbox" id="mapbox"><div id="mapsvg"></div><div class="tip" id="tip" hidden></div></div>
       <div class="seg ovseg" id="ovSeg" role="group" aria-label="Map overlay">${ovs.map(o => `<button type="button" data-ov="${o.id}">${esc(o.label)}</button>`).join('')}</div>
       <div class="seg ovseg ovsub" id="ovSub" role="group" aria-label="Which set" hidden></div>
+      <div class="seg mini sptog" id="spotTog" hidden><button type="button" aria-pressed="true">Assigned spots</button></div>
       <div class="key" id="mapKey"></div>
       <div id="spotEd"></div>
+      <div id="calEd"></div>
     </div>
     <div class="panel vpanel" id="${first.id}P"${first.diffs ? ` data-diffs="${first.diffs}"` : ''}>
       ${panelHead(esc(first.title), first.id)}
@@ -204,7 +206,7 @@ async function checkSite(){
   if (await refreshFlags(CFG.slug)) changed = true;   // pulls flagged with bad data
   if (CFG.spots){ const ch = await loadGroups(CFG.slug, CFG.spots.set), raw = JSON.stringify(ch || []);   // assigned spots (admin-placed)
     if (raw !== SPOTS.raw){ SPOTS.raw = raw; SPOTS.changes = ch || []; changed = true; } }
-  for (const set of CFG.groupSets || []){ const ch = await loadGroups(CFG.slug, set), raw = JSON.stringify(ch || []);   // other admin-set picks
+  for (const set of ['cal', ...(CFG.groupSets || [])]){ const ch = await loadGroups(CFG.slug, set), raw = JSON.stringify(ch || []);   // other admin-set picks
     if (raw !== GROUPS_RAW[set]){ GROUPS_RAW[set] = raw; GROUPS[set] = ch || []; changed = true; } }
   if (!changed && SITE.err === err0) return;
   render();
@@ -235,6 +237,8 @@ const spotG = (ov, set) => !ov || !ov.sets || set == null ? null : ov.spotGroup 
 const spotsOf = (all, kind, set) => { const pre = spotPrefix(set) + kind + ':';
   return Object.entries(all || {}).filter(([k]) => k.startsWith(pre) && (set != null || !/^s\d+:/.test(k))).map(([k, q]) => ({k, label: k.slice(pre.length), q})); };
 function fromMap(px, py){   // image pixel -> world [x, y] (toMap backwards)
+  { const A = calAdj(), r = -A.rot * Math.PI / 180, ax = px - A.dx - MAPW / 2, ay = py - A.dy - MAPW / 2;
+    px = MAPW / 2 + (ax * Math.cos(r) - ay * Math.sin(r)) / A.zoom; py = MAPW / 2 + (ax * Math.sin(r) + ay * Math.cos(r)) / A.zoom; }
   const c = CFG.map.cal, r = (c.rot || 0) * Math.PI / 180, a = (px - c.center[0]) / c.ppy, b = (py - c.center[1]) / c.ppy;
   const u = a * Math.cos(r) - b * Math.sin(r), v = a * Math.sin(r) + b * Math.cos(r);
   return [Math.round((c.cx - v) * 10) / 10, Math.round((c.cy - u) * 10) / 10];
@@ -254,9 +258,18 @@ function spotRings(all, kinds, set, edit){
 // ---- map: a square crop of the room image. cal: world (cx, cy) sits at image pixel center; ppy pixels per yard; north up,
 // turned rot degrees. Positions come straight from the log, so marks land where the player stood. ----
 const MAPW = 600;
-function toMap(q){
+function toMap0(q){
   const c = CFG.map.cal, r = (c.rot || 0) * Math.PI / 180, u = -(q[1] - c.cy), v = -(q[0] - c.cx);
   return [c.center[0] + (u * Math.cos(r) + v * Math.sin(r)) * c.ppy, c.center[1] + (-u * Math.sin(r) + v * Math.cos(r)) * c.ppy];
+}
+// an admin's alignment (Line up the map, under the map; groups-cal.json, the newest save counts for every pull): the log's
+// positions are turned rot degrees and zoomed around the image's middle, then moved dx, dy image pixels
+const CAL0 = {dx: 0, dy: 0, rot: 0, zoom: 1};
+const calAdj = () => CALD || (GROUPS.cal && GROUPS.cal.length ? Object.assign({}, CAL0, GROUPS.cal[GROUPS.cal.length - 1].groups) : CAL0);
+let CALD = null;   // the admin's unsaved alignment while the box is open
+function toMap(q){
+  const [x, y] = toMap0(q), A = calAdj(), r = A.rot * Math.PI / 180, ax = (x - MAPW / 2) * A.zoom, ay = (y - MAPW / 2) * A.zoom;
+  return [MAPW / 2 + ax * Math.cos(r) - ay * Math.sin(r) + A.dx, MAPW / 2 + ax * Math.sin(r) + ay * Math.cos(r) + A.dy];
 }
 let MK = 1;   // marks grow on small screens so they stay readable
 const at = (x, y) => `transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${MK})"`;
@@ -304,14 +317,23 @@ function renderMap(list, all){
   const set = curSet(ov);
   // assigned spots for the overlay: the newest pull's (one pull: that pull's), the ones in force now when there's no pull,
   // the unsaved ones while an admin edits them (drawn on top then, so they can be grabbed)
-  const kinds = ov && ov.spots ? ov.spots : null, edit = editingSpots() && kinds;
+  const kinds = ov && ov.spots && (SHOW_SPOTS || editingSpots()) ? ov.spots : null, edit = editingSpots() && kinds;
+  $('spotTog').hidden = !(ov && ov.spots); $('spotTog').querySelector('button').setAttribute('aria-pressed', String(SHOW_SPOTS));
   const spotSet = !kinds ? {} : edit ? SPOTS.draft : list.length ? spotsFor(list[list.length - 1]) : spotsNow(st.diff);
   const [rings, labels] = kinds ? spotRings(spotSet, kinds, spotG(ov, set), edit) : ['', ''];
   const layers = [[], [], [], [], [], []];
-  if (ov && (!ov.sets || set != null)) list.forEach(p => (ov.get(p, set) || []).forEach(m => {
-    if (!m.pos && !m.pts) return;
-    const tip = m.tip ? m.tip + (m.t != null ? `<br>${all ? 'pull ' + p.seq + ', ' : ''}${mss(m.t)}` : '') : '';
-    layers[LAYER[m.mark || 'dot']].push(markSvg(m, tip)); }));
+  if (ov && (!ov.sets || set != null)) list.forEach(p => { const ms = ov.get(p, set) || [];
+    ms.forEach(m => {
+      if (!m.pos && !m.pts) return;
+      const tip = m.tip ? m.tip + (m.t != null ? `<br>${all ? 'pull ' + p.seq + ', ' : ''}${mss(m.t)}` : '') : '';
+      layers[LAYER[m.mark || 'dot']].push(markSvg(m, tip)); });
+    // spots shown (not while editing): a dashed line from each assigned spot to the nearest orb of its colour a player dropped in
+    // this set, using the spots in force for that pull (Taylor 2026-11-11)
+    if (kinds && !edit) kinds.forEach(kind => spotsOf(spotsFor(p), kind, spotG(ov, set)).forEach(sp => {
+      const near = ms.filter(m => m.mark === 'orb' && m.kind === kind && m.dropped).sort((a, b) => dist(a.pos, sp.q) - dist(b.pos, sp.q))[0];
+      if (near) layers[1].push(markSvg({mark: 'trail', pts: [sp.q, near.pos], color: CFG.spots.kinds[kind].color, w: 1.6, dash: true},
+        `<b>${esc(CFG.spots.kinds[kind].label)} spot ${esc(sp.label)}</b>: nearest drop ${dist(near.pos, sp.q).toFixed(1)} yd away${all ? ' (pull ' + p.seq + ')' : ''}`)); }));
+  });
   const marks = layers.map(l => l.join('')).join('');
   const nMarks = layers[3].length + layers[4].length, dens = nMarks > 150 ? ' dense' : nMarks > 60 ? ' busy' : '';
   $('mapsvg').innerHTML = `<svg class="${dens.trim()}${edit ? ' editing' : ''}" viewBox="0 0 ${MAPW} ${MAPW}" role="img" aria-label="${esc(CFG.name)} room"><image href="${CFG.map.src}" x="0" y="0" width="${MAPW}" height="${MAPW}"/>${edit ? marks + rings + labels : rings + marks + labels}</svg>`;
@@ -319,6 +341,51 @@ function renderMap(list, all){
   $('ovSeg').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ov === st.ov)));
   $('mapKey').innerHTML = `${ov ? ov.key(set) : ''}<span class="hint">Hover a mark for details</span>`;
   renderSpotEd(ov, set);
+  renderCalEd();
+}
+// the assigned spots can be hidden (a per-browser switch beside the set buttons)
+let SHOW_SPOTS = true; try { SHOW_SPOTS = localStorage.getItem(CFG.slug + '-spots') !== 'off'; } catch (e) {}
+$('spotTog').querySelector('button').onclick = () => { SHOW_SPOTS = !SHOW_SPOTS; try { localStorage.setItem(CFG.slug + '-spots', SHOW_SPOTS ? 'on' : 'off'); } catch (e) {} render(); };
+
+// ---- Line up the map (admin only): nudge where the log's positions sit on the room image. Buttons move them north / south /
+// west / east, turn them, zoom them; the map redraws as you go. Save shares it with everyone (every pull on this page) ----
+const CAL_STEP = {move: 2, turn: 1, zoom: 0.01};   // one click; Shift-click = 5 times as much
+function renderCalEd(){
+  const el = $('calEd'); if (!el) return;
+  if (!isEditor()){ el.innerHTML = ''; return; }
+  if (!el.querySelector('details')){
+    el.innerHTML = `<details class="grped caled"><summary>Line up the map</summary>
+      <p class="sphelp">Move, turn or zoom the log's positions until they sit on the room image (Shift-click = bigger steps). Save shares it with everyone, for every pull on this page.</p>
+      <div class="calgrid">
+        <button type="button" data-c="n" title="Move north">N ↑</button><button type="button" data-c="s" title="Move south">S ↓</button>
+        <button type="button" data-c="w" title="Move west">W ←</button><button type="button" data-c="e" title="Move east">E →</button>
+        <button type="button" data-c="ccw" title="Turn left">⟲</button><button type="button" data-c="cw" title="Turn right">⟳</button>
+        <button type="button" data-c="out" title="Zoom out">−</button><button type="button" data-c="in" title="Zoom in">+</button>
+      </div>
+      <div class="gact"><button type="button" class="pri" data-a="save">Save</button><button type="button" data-a="undo">Undo changes</button><button type="button" data-a="zero">Back to the original</button><span class="gmsg"></span></div>
+      <div class="ghist calval"></div></details>`;
+    const d = el.querySelector('details');
+    d.addEventListener('toggle', () => { CALD = d.open ? Object.assign({}, calAdj()) : null; render(); });
+    d.querySelector('.calgrid').addEventListener('click', e => { const b = e.target.closest('button[data-c]'); if (!b || !CALD) return;
+      const k = e.shiftKey ? 5 : 1, c = b.dataset.c, M = CAL_STEP.move * k;
+      if (c === 'n') CALD.dy -= M; if (c === 's') CALD.dy += M; if (c === 'w') CALD.dx -= M; if (c === 'e') CALD.dx += M;
+      if (c === 'ccw') CALD.rot -= CAL_STEP.turn * k; if (c === 'cw') CALD.rot += CAL_STEP.turn * k;
+      if (c === 'in') CALD.zoom = +(CALD.zoom * (1 + CAL_STEP.zoom * k)).toFixed(4); if (c === 'out') CALD.zoom = +(CALD.zoom / (1 + CAL_STEP.zoom * k)).toFixed(4);
+      render(); });
+    const msg = (t, bad) => { const m = d.querySelector('.gmsg'); m.textContent = t; m.classList.toggle('bad', !!bad); };
+    d.querySelector('[data-a="undo"]').onclick = () => { CALD = null; CALD = Object.assign({}, calAdj()); msg(''); render(); };
+    d.querySelector('[data-a="zero"]').onclick = () => { CALD = Object.assign({}, CAL0); msg('Not saved yet.'); render(); };
+    d.querySelector('[data-a="save"]').onclick = async () => { msg('Saving…');
+      try { const r = await fetch(`api/groups/${TEAM.id}/${TIER}/${CFG.slug}/cal`, {method: 'PUT', headers: {'Authorization': 'Bearer ' + adminKey(), 'Content-Type': 'application/json'},
+          body: JSON.stringify({groups: {dx: +CALD.dx.toFixed(1), dy: +CALD.dy.toFixed(1), rot: +CALD.rot.toFixed(2), zoom: CALD.zoom}, from: 'now'})});
+        const j = await r.json().catch(() => ({}));
+        if (r.status === 401){ msg('The server didn\'t accept the admin key: sign out (title row) and save it again.', true); return; }
+        if (!r.ok || !j.ok){ msg(j.error === 'path not allowed' ? 'The server needs updating first (push, then rerun setup).' : (j.error || `Couldn't save (${r.status}).`), true); return; }
+        GROUPS.cal = j.changes.slice().sort((a, b) => a.at - b.at); GROUPS_RAW.cal = JSON.stringify(j.changes); msg('Saved.'); render();
+      } catch (e) { msg('Couldn\'t reach the server.', true); } };
+  }
+  const A = calAdj();
+  el.querySelector('.calval').textContent = `Now: moved ${Math.abs(A.dx).toFixed(0)} px ${A.dx >= 0 ? 'east' : 'west'}, ${Math.abs(A.dy).toFixed(0)} px ${A.dy >= 0 ? 'south' : 'north'}, turned ${A.rot.toFixed(0)}°, zoom ${(A.zoom * 100).toFixed(0)}%.`;
 }
 (() => {   // map tooltips: hover (or tap) a mark
   const box = $('mapbox'), tip = $('tip');
@@ -430,7 +497,9 @@ function renderModule(m, list){
   const r = list.length === 1 ? m.one(list[0]) : m.all(list);
   const head = '<tr>' + r.head.map((h, i) => { const [s, c] = Array.isArray(h) ? h : [h, '']; return `<th${c === 'l' ? ` class="l${i === r.head.length - 1 || i === 1 ? ' fill' : ''}"` : ''}>${esc(s)}</th>`; }).join('') + '</tr>';
   const blank = '<tr>' + r.head.map((h, i) => (Array.isArray(h) && h[1] === 'l') ? '<td class="l dim">—</td>' : `<td class="num dim">${i ? '0' : '–'}</td>`).join('') + '</tr>';
-  $(m.id + 'T').innerHTML = head + (r.rows.length ? r.rows.map(x => '<tr>' + x.join('') + '</tr>').join('') : blank);
+  // a row that is a string is a section heading spanning the table (modules with sections aren't sortable: m.nosort)
+  const T0 = $(m.id + 'T'); T0.classList.toggle('nosort', !!m.nosort);
+  T0.innerHTML = head + (r.rows.length ? r.rows.map(x => typeof x === 'string' ? `<tr class="subh"><td colspan="${r.head.length}">${x}</td></tr>` : '<tr>' + x.join('') + '</tr>').join('') : blank);
   $(m.id + 'N').innerHTML = [m.foot ? m.foot(list) : '', m.note || ''].filter(Boolean).join(' ');
 }
 
@@ -446,6 +515,8 @@ function placeModules(){
   const firstVis = order.find(vis) || order[0];
   order.forEach(m => { const el = $(m.id + 'P'); if (!el) return; const beside = m === firstVis, tw = el.querySelector('.tw');
     el.classList.toggle('vpanel', beside); if (tw) tw.classList.toggle('vt', beside);
+    // beside the map it takes the map's height: drop the height fitPairs gave it as a paired card down below
+    if (beside){ el.style.height = ''; el.classList.remove('fit'); if (tw) tw.classList.remove('scrollfit', 'more'); }
     if (beside) grid.appendChild(el); else mods.appendChild(el); });
 }
 
@@ -554,7 +625,7 @@ function cellVal(td){
   return t === '' || t === '–' || t === '—' ? null : t.toLowerCase();
 }
 function sortTables(){   // this page's tables (shared.js sorts the .st ones)
-  document.querySelectorAll('table:not(.st)').forEach(t => {
+  document.querySelectorAll('table:not(.st):not(.nosort)').forEach(t => {
     let rows = [...t.rows]; const hi = rows.findIndex(r => !r.querySelector('th')) - 1, h0 = hi < -1 ? rows.length - 1 : hi;
     if (h0 < 0) return; const hdr = rows[h0]; rows = [hdr, ...rows.slice(h0 + 1)];
     const hs = [...hdr.cells];
@@ -570,7 +641,7 @@ function sortTables(){   // this page's tables (shared.js sorts the .st ones)
   });
 }
 document.addEventListener('click', e => {
-  const th = e.target.closest('th.so'); if (!th || th.closest('table.st')) return;
+  const th = e.target.closest('th.so'); if (!th || th.closest('table.st') || th.closest('table.nosort')) return;
   const t = th.closest('table'), h = hText(th), cur = SORT[t.id];
   const first = [...t.rows].filter(r => !r.querySelector('th')).map(r => cellVal(r.cells[th.cellIndex])).find(v => v !== null);
   SORT[t.id] = {h, dir: cur && cur.h === h ? -cur.dir : typeof first === 'string' ? 1 : -1};

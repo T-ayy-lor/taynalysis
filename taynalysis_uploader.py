@@ -34,11 +34,12 @@ PAGE_EXT = {'.html', '.css', '.js', '.png', '.jpg', '.jpeg', '.webp', '.svg', '.
 DATA_EXT = {'.json', '.txt'}                                         # raid data and setup files, sent by --sync-site
 # files the boss pages save on the server with the editor key (data/<team>/<tier>/<page>/groups-<set>.json): group picks
 # (Twin Fangs) and pulls flagged with bad data (every boss); site_files never sends them, backup_groups copies them home
-GROUP_FILES = {'twin-fangs': ('feast', 'kicks')}
+GROUP_FILES = {'twin-fangs': ('feast', 'kicks'), 'coiled-altar': ('spots', 'pickers', 'soaks')}
 def group_files():
     """page folder -> its saved files: every boss page can have flagged pulls."""
     pages = ['sszorak', 'twin-fangs', 'kithix'] + [b['slug'] for b in FAIL_BOSSES]
-    return {pg: GROUP_FILES.get(pg, ()) + ('flags',) for pg in pages}
+    fail = {b['slug'] for b in FAIL_BOSSES}   # pages on boss.js also save their map alignment (groups-cal.json)
+    return {pg: GROUP_FILES.get(pg, ()) + ('flags',) + (('cal',) if pg in fail else ()) for pg in pages}
 is_groups_file = lambda f: f.startswith('groups-') and f.endswith('.json')
 
 ENC, BOSS_NPC = '3420', '-257347-'           # Sszorak encounter ID and creature ID
@@ -1844,6 +1845,83 @@ def backup_groups(up, root):
     if n: print(f'[{stamp()}] Saved {n} group / flag file{"" if n == 1 else "s"} from the site into {root}.')
 
 
+# ---- the raid's NSRT note -> the site (Taylor 2026-11-11: "i want the uploader to watch for changes saved to my nsrt note, and
+# update group assignments ... all i have to do is a reload"). WoW writes addon data (WTF/Account/*/SavedVariables/
+# NorthernSkyRaidTools.lua) only on /reload, logout or disconnect. When that file changes, the Coiled Altar note (the saved text
+# with EncounterID:3429) is read: "Guillotine Soaks" -> soak groups (P1 Soak 1-2, P3 Soak 1-3), "Orb Carriers" -> who may
+# pick up purple / green orbs ("Orb Helpers" help with green). Anything that changed is saved to the site as a new change
+# (Mythic, counts for pulls from now on), exactly like an admin's save on the page. ----
+NSRT_GLOB = '/Applications/World of Warcraft/_retail_/WTF/Account/*/SavedVariables/NorthernSkyRaidTools.lua'
+LUA_STR = re.compile(r'"((?:[^"\\]|\\.)*)"', re.S)
+def lua_unescape(t):
+    """A Lua string's contents -> text (\\n etc.; \\ddd byte codes are put back together as UTF-8, so accents survive)."""
+    out, i, b = bytearray(), 0, t.encode('utf-8')
+    while i < len(b):
+        if b[i] == 92 and i + 1 < len(b):          # backslash
+            m = re.match(rb'\\(\d{1,3})', b[i:])
+            if m: out.append(int(m.group(1)) & 255); i += len(m.group(0)); continue
+            out += {ord('n'): b'\n', ord('t'): b'\t', ord('r'): b'\r'}.get(b[i + 1], bytes([b[i + 1]])); i += 2; continue
+        out.append(b[i]); i += 1
+    return out.decode('utf-8', errors='replace')
+def nsrt_altar_note():
+    """The Coiled Altar note NSRT has loaded, or None. NSRT (Reminders.lua) saves every note as NSRT.Reminders["<name>"] =
+    "<text>" (re-importing one keeps the old copy as "<name> 2"), the loaded one's name as NSRT.ActiveReminder and its text as
+    NSRT.StoredSharedReminder. So: the loaded note if it's the Altar's, else the Altar note named ActiveReminder, else the last
+    Altar note saved."""
+    files = sorted(glob.glob(NSRT_GLOB), key=os.path.getmtime)
+    altar = lambda t: 'EncounterID:3429' in t
+    for f in reversed(files):
+        try: raw = open(f, encoding='utf-8', errors='replace').read()
+        except OSError: continue
+        for m in re.finditer(r'\["StoredSharedReminder"\] = "((?:[^"\\]|\\.)*)"', raw, re.S):
+            if altar(m.group(1)): return lua_unescape(m.group(1))
+        for a in re.finditer(r'\["ActiveReminder"\] = "((?:[^"\\]|\\.)*)"', raw):
+            name = re.escape(a.group(1))
+            for m in re.finditer(r'\["' + name + r'"\] = "((?:[^"\\]|\\.)*)"', raw, re.S):
+                if altar(m.group(1)): return lua_unescape(m.group(1))
+        notes = [lua_unescape(m.group(1)) for m in LUA_STR.finditer(raw) if altar(m.group(1))]
+        if notes: return notes[-1]
+    return None
+def nsrt_groups(text):
+    """{'soaks': {'11': [names]...}, 'pickers': {name: 'green' / 'purple' / 'both'}} from the note's plain-text sections."""
+    names = lambda t: [n.split('-')[0] for n in re.split(r'[\s,]+', t.strip()) if n and not n.startswith('{')]
+    soaks, pick = {}, {}
+    for m in re.finditer(r'^\s*P([13])\s*Soak\s*(\d)\s*:\s*(.+?)\s*$', text, re.M | re.I):
+        soaks[str(int(m.group(1)) * 10 + int(m.group(2)))] = names(m.group(3))
+    add = lambda n, k: pick.__setitem__(n, k if pick.get(n) in (None, k) else 'both')
+    for m in re.finditer(r'(purple|green)\s+orb\s*:\s*(.+?)\s*$', text, re.M | re.I):
+        for n in names(m.group(2)): add(n, m.group(1).lower())
+    for m in re.finditer(r'^\s*Orb Helpers\s*:\s*(.+?)\s*$', text, re.M | re.I):
+        for n in names(m.group(1)): add(n, 'green')
+    return {k: v for k, v in (('soaks', soaks), ('pickers', pick)) if v}
+def nsrt_sync(up, team, state):
+    """Called every few seconds: when NSRT's saved file changed, push changed groups to the site."""
+    files = glob.glob(NSRT_GLOB)
+    mt = max((os.path.getmtime(f) for f in files), default=None)
+    if mt is None or mt == state.get('mtime'): return
+    state['mtime'] = mt
+    text = nsrt_altar_note()
+    if not text:
+        if not state.get('told'): print(f'[{stamp()}] NSRT: no Coiled Altar note saved yet (it saves on /reload).'); state['told'] = True
+        return
+    for set_, groups in nsrt_groups(text).items():
+        rel = f'data/{team}/{TIER}/coiled-altar/groups-{set_}.json'
+        try:
+            cur = up.get_text(rel)
+            changes = json.loads(cur)['changes'] if cur else []
+            mine = [c for c in changes if not c.get('diffs') or 16 in c['diffs']]
+            if mine and sorted(mine, key=lambda c: c['at'])[-1]['groups'] == groups: continue   # already on the site
+            changes.append({'at': int(time.time()), 'diffs': [16], 'groups': dict(sorted(groups.items()))})
+            data = json.dumps({'changes': sorted(changes, key=lambda c: c['at'])}, ensure_ascii=False, indent=1).encode()
+            up.put(rel, data)
+            full = os.path.join(up.keep_dir or '.', rel); os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, 'wb') as fh: fh.write(data)
+            what = 'soak groups' if set_ == 'soaks' else 'orb pickers'
+            print(f'[{stamp()}] NSRT note changed: Coiled Altar {what} updated on the site (Mythic pulls from now on).')
+        except Exception as e:
+            print(f'[{stamp()}] NSRT: could not update the Coiled Altar {set_}: {e}')
+
+
 # ---- "now pulling" (Taylor 2026-11-02): the moment a supported boss is pulled, data/<team>/<tier>/live.json says so, and
 # again when the pull ends, so open pages can follow the raid to that boss (only viewers who aren't using the page) ----
 LIVE_RE = re.compile(r'^(\d+)/(\d+)/(\d+) (\d+):(\d+):(\d+)[^ ]*  ENCOUNTER_(START|END),(\d+),"([^"]*)",(\d+)', re.M)
@@ -1982,6 +2060,7 @@ def main():
         print(f'[{stamp()}] Connected to github.com/{REPO}')
 
     path, fh, parser, fangs, kith, act, seen_finished, pending, last_upload = None, None, None, None, None, None, None, False, 0.0
+    nsrt_state = {}
     fails = []      # one FailParser per boss in FAIL_BOSSES
 
     dec, pos = None, 0
@@ -2110,6 +2189,7 @@ def main():
                         pending, last_upload = False, time.time()
                     else:
                         last_upload = time.time() - gap + (10 if up.live else 30)   # retry shortly
+            if up and up.live and not dry and not path_override: nsrt_sync(up, team, nsrt_state)   # the raid's NSRT note (after a /reload)
             if once: break
             time.sleep(POLL_SECONDS)
     except KeyboardInterrupt:

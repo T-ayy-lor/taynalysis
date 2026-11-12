@@ -144,6 +144,15 @@ th.so.desc::after{content:'▼';font-size:.7em;margin-left:3px}
 .mpanel .ovsub{margin-top:6px;flex-wrap:wrap;justify-content:center}
 .mpanel .ovsub button{font-size:.78rem;padding:4px 9px}
 .spoted .spkind{margin:8px 0 0}
+.grped .soakrow{display:grid;grid-template-columns:90px minmax(0,1fr);gap:8px;align-items:center;margin:6px 0}
+.grped .soakrow input{width:100%}
+.mpanel .sptog{display:flex;width:fit-content;margin:6px auto 0}
+.caled .calgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;max-width:360px;margin:6px 0 10px}
+.caled .calgrid button{font-size:.85rem;padding:6px 0}
+/* section headings inside a table (e.g. one per Guillotine soak) */
+tr.subh td{padding:12px 6px 5px;font:600 .8rem var(--f-body);color:var(--ink);border-bottom:1px solid var(--line);text-align:left;white-space:normal}
+tr.subh:first-child td,thead+tbody tr.subh:first-child td{padding-top:6px}
+tr.subh .dim{font-weight:500}
 .mapbox{position:relative;width:100%;aspect-ratio:1/1;border-radius:8px;overflow:hidden;background:#141a3a}
 #mapsvg,#mapsvg svg{display:block;width:100%;height:100%}
 .mapbox [data-tip]{cursor:pointer}
