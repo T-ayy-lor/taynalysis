@@ -228,7 +228,9 @@ const GROUPS = {}, GROUPS_RAW = {};   // CFG.groupSets: set -> saved changes (gr
 const SPOTS = {changes: null, raw: null, draft: null, draftDiff: null, sel: null, drag: null, kind: null};
 const spotsNow = diff => groupsAt(SPOTS.changes, Date.now(), diff) || {};
 const spotsFor = p => groupsAt(SPOTS.changes, pullUtc(p), p.diff) || {};
-const spotPrefix = set => set != null ? `s${set}:` : '';
+const spotPrefix = g => g != null ? `s${g}:` : '';
+// which spot layout a set uses: overlay.spotGroup(set) lets several sets share one (Coiled Altar: every P1 set shares one)
+const spotG = (ov, set) => !ov || !ov.sets || set == null ? null : ov.spotGroup ? ov.spotGroup(set) : set;
 // the spots of one kind (and orb set): [{k, label, q}]
 const spotsOf = (all, kind, set) => { const pre = spotPrefix(set) + kind + ':';
   return Object.entries(all || {}).filter(([k]) => k.startsWith(pre) && (set != null || !/^s\d+:/.test(k))).map(([k, q]) => ({k, label: k.slice(pre.length), q})); };
@@ -304,7 +306,7 @@ function renderMap(list, all){
   // the unsaved ones while an admin edits them (drawn on top then, so they can be grabbed)
   const kinds = ov && ov.spots ? ov.spots : null, edit = editingSpots() && kinds;
   const spotSet = !kinds ? {} : edit ? SPOTS.draft : list.length ? spotsFor(list[list.length - 1]) : spotsNow(st.diff);
-  const [rings, labels] = kinds ? spotRings(spotSet, kinds, ov.sets ? set : null, edit) : ['', ''];
+  const [rings, labels] = kinds ? spotRings(spotSet, kinds, spotG(ov, set), edit) : ['', ''];
   const layers = [[], [], [], [], [], []];
   if (ov && (!ov.sets || set != null)) list.forEach(p => (ov.get(p, set) || []).forEach(m => {
     if (!m.pos && !m.pts) return;
@@ -363,7 +365,7 @@ function renderSpotEd(ov, set){
   const d = el.querySelector('details'), K = CFG.spots.kinds[SPOTS.kind];
   const kh = ov.spots.map(k => `<button type="button" data-k="${k}" aria-pressed="${k === SPOTS.kind}">${esc(CFG.spots.kinds[k].label)}</button>`).join('');
   if (d.querySelector('.spkind').innerHTML !== kh) d.querySelector('.spkind').innerHTML = kh;
-  const setName = ov.sets ? `set ${set}` : '';
+  const setName = ov.sets ? (ov.setNote ? ov.setNote(set) : `set ${set}`) : '';
   d.querySelector('.sphelp').innerHTML = `${esc(dn)}${setName ? ' · ' + esc(setName) : ''} · <b style="color:${K.color}">${esc(K.label)}</b>: click the map to add a spot, drag a spot to move it, click one to rename or remove it. Save shares every ${esc(dn)} spot (all sets) with everyone; they count for pulls that start after you save.`;
   const sel = SPOTS.draft && SPOTS.sel && SPOTS.draft[SPOTS.sel] ? SPOTS.sel : null;
   const box = d.querySelector('.spsel'), lab = k => k.slice(k.lastIndexOf(':') + 1);
@@ -408,8 +410,8 @@ async function saveSpots(){
     const g = e.target.closest('g.spot');
     if (g) SPOTS.sel = g.dataset.k;
     else {   // a new spot where the map was clicked, labelled with the next free number for this colour and set
-      const kind = SPOTS.kind || ov.spots[0], used = new Set(spotsOf(SPOTS.draft, kind, ov.sets ? set : null).map(s => s.label)); let n = 1; while (used.has(String(n))) n++;
-      SPOTS.sel = spotPrefix(ov.sets ? set : null) + kind + ':' + n; SPOTS.draft[SPOTS.sel] = fromMap(pt[0], pt[1]);
+      const kind = SPOTS.kind || ov.spots[0], g = spotG(ov, set), used = new Set(spotsOf(SPOTS.draft, kind, g).map(s => s.label)); let n = 1; while (used.has(String(n))) n++;
+      SPOTS.sel = spotPrefix(g) + kind + ':' + n; SPOTS.draft[SPOTS.sel] = fromMap(pt[0], pt[1]);
     }
     render();
     const g2 = box.querySelector(`g.spot[data-k="${CSS.escape(SPOTS.sel)}"]`);

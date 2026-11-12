@@ -56,7 +56,7 @@ function frontalOf(p, c){
 }
 function orbSim(p){
   if (p._orb) return p._orb;
-  const deluges = castsOf(p, 'Toxic Deluge'), setAt = t => Math.max(1, deluges.filter(d => d <= t + 0.5).length);
+  const deluges = castsOf(p, 'Toxic Deluge'), setAt = t => orbSetAt(p, t);
   let orbs = (p.orbs || []).map(o => ({t: o[0], kind: o[1], id: o[2], pos: [o[3], o[4]]}));
   if (!p.orbs) orbs = (p.drops || []).filter(d => d[1] === 'Coalesced Venom').map(d => ({t: d[0], kind: 'cv', pos: d[2]}));
   if (!p.orbs && !p.drops) orbs = auras(p, 'Volatile Venom').filter(a => a[2] != null && a[6]).map(a => ({t: a[2], kind: 'cv', pos: a[6]}));   // oldest nights
@@ -100,6 +100,13 @@ function orbSim(p){
   });
   return (p._orb = {orbs, frontals, booms});
 }
+// a set's key = phase * 10 + its number in that phase (P1 set 2 = 12, P3 set 1 = 31): P3 starts with Soulbinding (the intermission)
+function orbSetAt(p, t){
+  const soul = castsOf(p, 'Soulbinding')[0], p3 = soul != null && t >= soul, ds = castsOf(p, 'Toxic Deluge').filter(d => p3 ? d >= soul : soul == null || d < soul);
+  return (p3 ? 30 : 10) + Math.max(1, ds.filter(d => d <= t + 0.5).length);
+}
+const ORB_PLAN = [11, 12, 13, 14, 31, 32, 33];   // Mythic: four orb sets in P1, three in P3 (the raid's plan)
+const orbSetLabel = k => `P${Math.floor(k / 10)} set ${k % 10}`;
 const orbSets = p => { const S = orbSim(p); return [...new Set([...S.orbs.map(o => o.set), ...S.frontals.map(f => f.set)])]; };
 const fate = o => o.how ? `<br>${esc(o.how)}${o.pickedBy ? ' by ' + nameTip(o.pickedBy) : ''} at ${mss(o.gone)}` : '';
 function orbMarks(p, set){
@@ -224,7 +231,14 @@ const CFG = {
   map: {src: 'img/maps/coiled-altar.webp', cal: {cx: 1158, cy: 0, ppy: 6.029, rot: 0, center: [299.5, 290]}},
   // map overlays, each with a button per set under it; the tables with the same ov move up beside the map when it's picked
   overlays: [
-    {id: 'orbs', label: 'Orbs', sets: list => setsOf(list, orbSets, k => `Set ${k}`), get: orbMarks, spots: ['cv', 'vm'],
+    {id: 'orbs', label: 'Orbs', get: orbMarks, spots: ['cv', 'vm'],
+     // on Mythic every planned set has a button (so spots can be placed before any pull); P1 sets share one spot layout (group 1),
+     // each P3 set has its own (31, 32, 33)
+     sets: list => { const S = setsOf(list, orbSets, orbSetLabel), have = new Set(S.map(x => x.k));
+       if (st.diff === 16) ORB_PLAN.forEach(k => { if (!have.has(k)) S.push({k, label: orbSetLabel(k)}); });
+       return S.sort((a, b) => a.k - b.k); },
+     spotGroup: k => k < 30 ? 1 : k,
+     setNote: k => k < 30 ? `${orbSetLabel(k)} (every P1 set shares these spots)` : `${orbSetLabel(k)} (its own spots)`,
      key: () => `<span>${KEY_ORB(ORB.cv.color)}Green orb</span><span>${KEY_ORB(ORB.vm.color)}Purple orb</span><span>Letter = who dropped it (<b style="color:var(--crit)">red</b>: not on that colour's list)</span>` +
        `<span>${KEY_CONE('#d8d2cf')}Frontal</span><span>${KEY_CONE('#ff5a4a')}Hit more than ${FRONT_MAX.cv} green / ${FRONT_MAX.vm} purple</span><span>${keyCross('#ff5a4a')}Orbs exploded</span>`},
     {id: 'guil', label: 'Guillotines', sets: list => setsOf(list, p => guillotines(p).map(g => g.key), k => k < 30 ? `P1 soak ${k - 10}` : `P3 soak ${k - 30}`), get: guilMarks,
